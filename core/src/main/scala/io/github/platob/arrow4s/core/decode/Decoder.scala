@@ -10,14 +10,14 @@ object Decoder {
   abstract class Typed[T, V <: FieldVector] extends Decoder {
     def get(vector: V, index: Int): T
 
+    def getOption(vector: V, index: Int): Option[T] = {
+      if (vector.isNull(index)) None
+      else Some(get(vector, index))
+    }
+
     def getOrNull(vector: V, index: Int): T = {
       if (vector.isNull(index)) null.asInstanceOf[T]
       else get(vector, index)
-    }
-
-    def getOptional(vector: V, index: Int): Option[T] = {
-      if (vector.isNull(index)) None
-      else Some(get(vector, index))
     }
 
     def getAny(vector: FieldVector, index: Int): Any = {

@@ -2,7 +2,7 @@ package io.github.platob.arrow4s.core.decode
 
 import io.github.platob.arrow4s.core.ArrowRecord
 import org.apache.arrow.vector.complex.StructVector
-import org.apache.arrow.vector.types.pojo.{Field, Schema}
+import org.apache.arrow.vector.types.pojo.Field
 import org.apache.arrow.vector.{IntVector, types}
 
 import scala.language.implicitConversions

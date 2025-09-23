@@ -2,14 +2,14 @@ package io.github.platob.arrow4s.core
 
 import org.apache.arrow.vector.types.pojo.Field
 
-import scala.collection.convert.ImplicitConversions.`list asScalaBuffer`
-
 case class ArrowRecord(
   fields: java.util.List[Field],
   values: Array[Any]
 ) {
+  def indices: Range = 0 until fields.size()
+
   def indexOf(name: String): Int = {
-    for (i <- fields.indices) {
+    for (i <- this.indices) {
       val field = fields.get(i)
 
       if (field.getName == name) {
@@ -17,7 +17,7 @@ case class ArrowRecord(
       }
     }
 
-    for (i <- fields.indices) {
+    for (i <- this.indices) {
       val field = fields.get(i)
 
       if (field.getName.equalsIgnoreCase(name)) {

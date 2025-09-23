@@ -16,24 +16,28 @@ object Encoders {
     }
   }
 
-  implicit val intEncoder: Encoder.Typed[Int, IntVector] = new Encoder.Typed[Int, IntVector] {
-    override def setValue(vector: IntVector, value: Int, index: Int): Unit = {
-      vector.set(index, value)
+  implicit val intEncoder: Encoder.Typed[Int, IntVector] = {
+    new Encoder.Typed[Int, IntVector] {
+      override def set(vector: IntVector, index: Int, value: Int): Unit = {
+        vector.set(index, value)
+      }
     }
   }
 
-  implicit val structEncoder: Encoder.Typed[ArrowRecord, StructVector] = new Encoder.Typed[ArrowRecord, StructVector] {
-    override def setValue(vector: StructVector, index: Int, value: ArrowRecord): Unit = {
-      val fieldVectors = vector.getChildrenFromFields
+  implicit val structEncoder: Encoder.Typed[ArrowRecord, StructVector] = {
+    new Encoder.Typed[ArrowRecord, StructVector] {
+      override def set(vector: StructVector, index: Int, value: ArrowRecord): Unit = {
+        val fieldVectors = vector.getChildrenFromFields
 
-      vector.setIndexDefined(index)
+        vector.setIndexDefined(index)
 
-      fieldVectors.stream().forEach(fieldVector => {
-        val encoder = from(fieldVector.getField)
-        val childValue = value.getOrNull(name = fieldVector.getName)
+        fieldVectors.stream().forEach(fieldVector => {
+          val encoder = from(fieldVector.getField)
+          val childValue = value.getOrNull(name = fieldVector.getName)
 
-        encoder.setAny(vector = fieldVector, index = index, value = childValue)
-      })
+          encoder.setAnyValue(vector = fieldVector, index = index, value = childValue)
+        })
+      }
     }
   }
 }

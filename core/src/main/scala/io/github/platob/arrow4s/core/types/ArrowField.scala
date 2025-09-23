@@ -4,7 +4,7 @@ import org.apache.arrow.vector.types.FloatingPointPrecision
 import org.apache.arrow.vector.types.pojo.{ArrowType, Field, FieldType}
 
 import scala.jdk.CollectionConverters.{MapHasAsJava, SeqHasAsJava}
-import scala.reflect.runtime.universe._
+import scala.reflect.runtime.universe.{Type, typeOf, TypeTag, termNames}
 
 object ArrowField {
   /** Hook signature:
@@ -171,6 +171,6 @@ object ArrowField {
   private def defaultName(tpe: Type): String = {
     val base = tpe.typeSymbol.name.decodedName.toString
 
-    base.head.toLower + base.tail
+    s"${base.head.toLower}${base.tail}" // make first letter lowercase: Base
   }
 }

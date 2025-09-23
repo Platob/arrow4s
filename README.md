@@ -33,3 +33,15 @@ On pushing a **tag** like `v0.1.0`, the CI pipeline will publish:
 
 ## Coordinates
 Group is pre-set to `io.github.platob`. Update `organization` if needed.
+
+```scala
+import munit.Assertions.assertEquals
+// import your Arrow types as needed
+// import io.github.platob.arrow4s.core.ArrowArray
+// import io.github.platob.arrow4s.core.arrays.IntArray
+
+val values      = Seq(1, 2, 3, 4, 5)
+val arrowArray  = ArrowArray.build[Int](values).asInstanceOf[IntArray].toSeq.flatten
+
+assertEquals(arrowArray, values)
+```

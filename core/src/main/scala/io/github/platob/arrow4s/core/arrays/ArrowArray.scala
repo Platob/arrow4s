@@ -7,7 +7,7 @@ import io.github.platob.arrow4s.core.types.ArrowField
 import org.apache.arrow.memory.{BufferAllocator, RootAllocator}
 import org.apache.arrow.vector.types.pojo.ArrowType.ArrowTypeID
 import org.apache.arrow.vector.types.pojo.Field
-import org.apache.arrow.vector.{FieldVector, IntVector, types}
+import org.apache.arrow.vector.{FieldVector, IntVector}
 
 import scala.reflect.runtime.universe.TypeTag
 
@@ -40,21 +40,30 @@ trait ArrowArray extends AutoCloseable {
 }
 
 object ArrowArray {
-  trait Typed[T, V <: FieldVector, A <: Typed[T, V, A]]
-    extends ArrowArray with Iterable[Option[T]] {
+  trait ValueTyped[T, A <: ValueTyped[T, A]] extends ArrowArray with Seq[T] {
+    def apply(index: Int): T = getOrNull(index)
+
+    def get(index: Int): T
+
+    def getOrNull(index: Int): T
+
+    def set(index: Int, value: T): A
+
+    def set(startIndex: Int, values: Iterable[T]): A
+
+    def iterator: Iterator[T] = indices.iterator.map(get)
+  }
+
+  trait Typed[T, V <: FieldVector, A <: Typed[T, V, A]] extends ValueTyped[T, A] {
     def encoder: Encoder.Typed[T, V]
 
     def decoder: Decoder.Typed[T, V]
-
-    def indices: Range = 0 until length
-
-    def iterator: Iterator[Option[T]] = indices.iterator.map(getOption)
 
     def vector: V
 
     def get(index: Int): T = decoder.get(vector, index)
 
-    def getOption(index: Int): Option[T] = decoder.getOption(vector, index)
+    def getOrNull(index: Int): T = decoder.getOrNull(vector, index)
 
     def set(index: Int, value: T): A = {
       encoder.set(vector, index, value)
@@ -69,13 +78,15 @@ object ArrowArray {
     }
   }
 
-  def build[T](implicit tt: TypeTag[T]): ArrowArray = {
+  def apply[T : TypeTag](values: Seq[T]): ValueTyped[T, _] = build[T](values)
+
+  def build[T : TypeTag]: ValueTyped[T, _] = {
     val allocator = new RootAllocator()
 
     build[T](allocator, 0)
   }
 
-  def build[T](values: Seq[T])(implicit tt: TypeTag[T]): ArrowArray = {
+  def build[T : TypeTag](values: Seq[T]): ValueTyped[T, _] = {
     val allocator = new RootAllocator()
 
     val array = build[T](allocator, values.size)
@@ -85,13 +96,13 @@ object ArrowArray {
     array
   }
 
-  def build[T](
+  def build[T : TypeTag](
     allocator: BufferAllocator,
     capacity: Int
-  )(implicit tt: TypeTag[T]): ArrowArray = {
+  ): ValueTyped[T, _] = {
     val field = ArrowField.fromScala[T]
 
-    empty(field, allocator, capacity)
+    empty(field, allocator, capacity).asInstanceOf[ArrowArray.ValueTyped[T, _]]
   }
 
   def empty(

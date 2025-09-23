@@ -3,14 +3,14 @@ package io.github.platob.arrow4s.core
 import org.apache.arrow.vector.types.pojo.Field
 
 case class ArrowRecord(
-  fields: java.util.List[Field],
+  fields: Seq[Field],
   values: Array[Any]
 ) {
-  def indices: Range = 0 until fields.size()
+  def indices: Range = fields.indices
 
   def indexOf(name: String): Int = {
     for (i <- this.indices) {
-      val field = fields.get(i)
+      val field = fields(i)
 
       if (field.getName == name) {
         return i
@@ -18,7 +18,7 @@ case class ArrowRecord(
     }
 
     for (i <- this.indices) {
-      val field = fields.get(i)
+      val field = fields(i)
 
       if (field.getName.equalsIgnoreCase(name)) {
         return i
@@ -29,7 +29,7 @@ case class ArrowRecord(
   }
 
   def field(index: Int): Field = {
-    fields.get(index)
+    fields(index)
   }
 
   def get(index: Int): Any = {

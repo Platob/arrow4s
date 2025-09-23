@@ -38,7 +38,7 @@ Group is pre-set to `io.github.platob`. Update `organization` if needed.
 import io.github.platob.arrow4s.core.ArrowArray
 
 val values = Seq(1, 2, 3, 4, 5)
-val array = ArrowArray[Int](values)
+val array = ArrowArray(1, 2, 3, 4, 5)
 
 array == values
 ```

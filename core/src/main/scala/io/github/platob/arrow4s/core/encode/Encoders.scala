@@ -7,6 +7,8 @@ import java.nio.charset.Charset
 object Encoders {
   implicit val intEncoder: Encoder.Typed[Int, IntVector] = {
     new Encoder.Typed[Int, IntVector] {
+      val isOptional: Boolean = false
+
       override def set(vector: IntVector, index: Int, value: Int): Unit = {
         vector.set(index, value)
       }
@@ -15,6 +17,8 @@ object Encoders {
 
   implicit val uintEncoder: Encoder.Typed[Int, UInt4Vector] = {
     new Encoder.Typed[Int, UInt4Vector] {
+      val isOptional: Boolean = false
+
       override def set(vector: UInt4Vector, index: Int, value: Int): Unit = {
         vector.set(index, value)
       }
@@ -23,6 +27,8 @@ object Encoders {
 
   implicit val longEncoder: Encoder.Typed[Long, BigIntVector] = {
     new Encoder.Typed[Long, BigIntVector] {
+      val isOptional: Boolean = false
+
       override def set(vector: BigIntVector, index: Int, value: Long): Unit = {
         vector.set(index, value.toInt)
       }
@@ -31,6 +37,8 @@ object Encoders {
 
   implicit val ulongEncoder: Encoder.Typed[Long, UInt8Vector] = {
     new Encoder.Typed[Long, UInt8Vector] {
+      val isOptional: Boolean = false
+
       override def set(vector: UInt8Vector, index: Int, value: Long): Unit = {
         vector.set(index, value)
       }
@@ -39,6 +47,8 @@ object Encoders {
 
   implicit val stringEncoder: Encoder.Typed[String, VarCharVector] = {
     new Encoder.Typed[String, VarCharVector] {
+      val isOptional: Boolean = false
+
       val charset: Charset = Charset.forName("UTF-8")
 
       override def set(vector: VarCharVector, index: Int, value: String): Unit = {
@@ -49,6 +59,8 @@ object Encoders {
 
   implicit val booleanEncoder: Encoder.Typed[Boolean, BitVector] = {
     new Encoder.Typed[Boolean, BitVector] {
+      val isOptional: Boolean = false
+
       override def set(vector: BitVector, index: Int, value: Boolean): Unit = {
         vector.set(index, if (value) 1 else 0)
       }
@@ -57,6 +69,8 @@ object Encoders {
 
   implicit val doubleEncoder: Encoder.Typed[Double, Float8Vector] = {
     new Encoder.Typed[Double, Float8Vector] {
+      val isOptional: Boolean = false
+
       override def set(vector: Float8Vector, index: Int, value: Double): Unit = {
         vector.set(index, value)
       }
@@ -65,6 +79,8 @@ object Encoders {
 
   implicit val floatEncoder: Encoder.Typed[Float, Float4Vector] = {
     new Encoder.Typed[Float, Float4Vector] {
+      val isOptional: Boolean = false
+
       override def set(vector: Float4Vector, index: Int, value: Float): Unit = {
         vector.set(index, value)
       }
@@ -73,6 +89,8 @@ object Encoders {
 
   implicit val shortEncoder: Encoder.Typed[Short, SmallIntVector] = {
     new Encoder.Typed[Short, SmallIntVector] {
+      val isOptional: Boolean = false
+
       override def set(vector: SmallIntVector, index: Int, value: Short): Unit = {
         vector.set(index, value)
       }
@@ -81,6 +99,8 @@ object Encoders {
 
   implicit val ushortEncoder: Encoder.Typed[Char, UInt2Vector] = {
     new Encoder.Typed[Char, UInt2Vector] {
+      val isOptional: Boolean = false
+
       override def set(vector: UInt2Vector, index: Int, value: Char): Unit = {
         vector.set(index, value)
       }
@@ -89,6 +109,8 @@ object Encoders {
 
   implicit val byteEncoder: Encoder.Typed[Byte, UInt1Vector] = {
     new Encoder.Typed[Byte, UInt1Vector] {
+      val isOptional: Boolean = false
+
       override def set(vector: UInt1Vector, index: Int, value: Byte): Unit = {
         vector.set(index, value)
       }
@@ -97,6 +119,8 @@ object Encoders {
 
   implicit val byteArrayEncoder: Encoder.Typed[Array[Byte], VarBinaryVector] = {
     new Encoder.Typed[Array[Byte], VarBinaryVector] {
+      val isOptional: Boolean = false
+
       override def set(vector: VarBinaryVector, index: Int, value: Array[Byte]): Unit = {
         vector.setSafe(index, value)
       }

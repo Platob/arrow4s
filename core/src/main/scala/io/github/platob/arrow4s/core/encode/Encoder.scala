@@ -8,8 +8,11 @@ import org.apache.arrow.vector.types.pojo.ArrowType.ArrowTypeID
 import org.apache.arrow.vector.types.pojo.Field
 
 import scala.jdk.CollectionConverters.CollectionHasAsScala
+import scala.reflect.runtime.universe.{TypeTag, typeOf}
 
 trait Encoder {
+  def isOptional: Boolean
+
   /**
    * Ensure that the vector has at least the given capacity.
    * @param vector Input vector
@@ -115,8 +118,14 @@ object Encoder {
     }
   }
 
+  def struct(field: Field): Encoder.Typed[ArrowRecord, StructVector] = {
+    struct(field.getChildren.asScala.toSeq)
+  }
+
   def struct(fields: Seq[Field]): Encoder.Typed[ArrowRecord, StructVector] = {
     new Encoder.Typed[ArrowRecord, StructVector] {
+      val isOptional: Boolean = false
+
       val encoders: Seq[Encoder] = fields.map(field => Encoder.from(field))
 
       override def set(vector: StructVector, index: Int, value: ArrowRecord): Unit = {
@@ -136,16 +145,24 @@ object Encoder {
     }
   }
 
-  def proxy[Logical, Primitive, V <: FieldVector](
+  def proxy[Logical : TypeTag, Primitive, V <: FieldVector](
     encoder: Typed[Primitive, V],
     apply: Logical => Primitive
-  ): Typed[Logical, V] = new Typed[Logical, V] {
-    def set(vector: V, index: Int, value: Logical): Unit = {
-      encoder.set(vector, index, apply(value))
+  ): Typed[Logical, V] = {
+    val optional = typeOf[Logical] =:= typeOf[Option[_]]
+
+    new Typed[Logical, V] {
+      val isOptional: Boolean = optional
+
+      def set(vector: V, index: Int, value: Logical): Unit = {
+        encoder.set(vector, index, apply(value))
+      }
     }
   }
 
   def optional[T, V <: FieldVector](encoder: Typed[T, V]): Typed[Option[T], V] = new Typed[Option[T], V] {
+    val isOptional: Boolean = true
+
     def set(vector: V, index: Int, value: Option[T]): Unit = {
       value match {
         case Some(v) => encoder.set(vector, index, v)
@@ -153,13 +170,13 @@ object Encoder {
       }
     }
   }
-  
+
   def from(field: types.pojo.Field): Encoder = {
     field.getType.getTypeID match {
       case ArrowTypeID.Int =>
         intEncoder
       case ArrowTypeID.Struct =>
-        struct(field.getChildren.asScala.toSeq)
+        struct(field)
       case _ =>
         throw new IllegalArgumentException(s"Unsupported data type: ${field.getType}")
     }

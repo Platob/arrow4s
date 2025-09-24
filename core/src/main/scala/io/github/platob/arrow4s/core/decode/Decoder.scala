@@ -10,17 +10,14 @@ import org.apache.arrow.vector.{FieldVector, types}
 import scala.jdk.CollectionConverters.CollectionHasAsScala
 
 trait Decoder {
+  val isOptional: Boolean
+
   def getAny(vector: FieldVector, index: Int): Any
 }
 
 object Decoder {
   abstract class Typed[T, V <: FieldVector] extends Decoder {
     def get(vector: V, index: Int): T
-
-    def getOption(vector: V, index: Int): Option[T] = {
-      if (vector.isNull(index)) None
-      else Some(get(vector, index))
-    }
 
     def getOrNull(vector: V, index: Int): T = {
       if (vector.isNull(index)) null.asInstanceOf[T]
@@ -32,8 +29,14 @@ object Decoder {
     }
   }
 
+  def struct(field: Field): Decoder.Typed[ArrowRecord, StructVector] = {
+    struct(field.getChildren.asScala.toSeq)
+  }
+
   def struct(fields: Seq[Field]): Decoder.Typed[ArrowRecord, StructVector] = {
     new Decoder.Typed[ArrowRecord, StructVector] {
+      val isOptional: Boolean = false
+
       val decoders: Seq[Decoder] = fields.map(field => Decoder.from(field))
 
       override def get(vector: StructVector, index: Int): ArrowRecord = {
@@ -54,12 +57,21 @@ object Decoder {
     }
   }
 
+  def optional[T, V <: FieldVector](decoder: Typed[T, V]): Typed[Option[T], V] = new Typed[Option[T], V] {
+    val isOptional: Boolean = true
+
+    def get(vector: V, index: Int): Option[T] = {
+      if (vector.isNull(index)) None
+      else Some(decoder.get(vector, index))
+    }
+  }
+
   def from(field: types.pojo.Field): Decoder = {
     field.getType.getTypeID match {
       case ArrowTypeID.Int =>
         intDecoder
       case ArrowTypeID.Struct =>
-        struct(field.getChildren.asScala.toSeq)
+        struct(field)
       case _ =>
         throw new IllegalArgumentException(s"Unsupported data type: ${field.getType}")
     }

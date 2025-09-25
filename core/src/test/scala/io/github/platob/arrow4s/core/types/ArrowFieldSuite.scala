@@ -97,7 +97,7 @@ class ArrowFieldSuite extends FunSuite {
 
   test("respect explicit nullable flag when called via the (Type, name, nullable) overload") {
     val tpe = typeOf[Long]
-    val f   = ArrowField.fromScala(tpe, name = "id", nullable = true, metadata = None, hook = ArrowField.noHook)
+    val f   = ArrowField.fromScala(tpe, name = "id", nullable = true, metadata = None)
     assertEquals(f.getName, "id")
     assertEquals(f.isNullable, true)
     assertEquals(f.getType, new ArrowType.Int(64, true))

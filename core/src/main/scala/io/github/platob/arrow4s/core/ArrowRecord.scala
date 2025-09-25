@@ -1,11 +1,11 @@
 package io.github.platob.arrow4s.core
 
+import io.github.platob.arrow4s.core.arrays.ArrowArray
 import org.apache.arrow.vector.types.pojo.Field
 
-case class ArrowRecord(
-  fields: Seq[Field],
-  values: Array[Any]
-) {
+trait ArrowRecord {
+  def fields: Seq[Field]
+
   def indices: Range = fields.indices
 
   def indexOf(name: String): Int = {
@@ -27,28 +27,13 @@ case class ArrowRecord(
 
     -1
   }
+}
 
-  def field(index: Int): Field = {
-    fields(index)
-  }
-
-  def get(index: Int): Any = {
-    values(index)
-  }
-
-  def get(name: String): Any = {
-    val index = indexOf(name)
-
-    get(index)
-  }
-
-  def getOrNull(name: String): Any = {
-    val index = indexOf(name)
-
-    if (index == -1) {
-      null
-    } else {
-      get(index)
-    }
+object ArrowRecord {
+  class View(
+    val index: Int,
+    val arrays: Seq[ArrowArray]
+  ) extends ArrowRecord {
+    def fields: Seq[Field] = arrays.map(_.field)
   }
 }

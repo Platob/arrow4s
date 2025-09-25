@@ -1,5 +1,4 @@
 ThisBuild / organization     := "io.github.platob"
-ThisBuild / organizationName := "arrow4s"
 ThisBuild / scalaVersion     := Dependencies.V.scala213
 ThisBuild / crossScalaVersions := Seq(Dependencies.V.scala212, Dependencies.V.scala213)
 
@@ -64,10 +63,19 @@ lazy val core = (project in file("core"))
   .settings(commonSettings)
   .settings(
     name := "arrow4s-core",
-    libraryDependencies ++= Dependencies.arrow ++ Seq(
+    libraryDependencies ++= Dependencies.arrowCore ++ Seq(
       // Scala reflect
       "org.scala-lang" % "scala-reflect" % scalaVersion.value,
+      "org.scala-lang" % "scala-compiler" % scalaVersion.value,
     )
+  )
+
+lazy val io = (project in file("io"))
+  .dependsOn(core)
+  .settings(commonSettings)
+  .settings(
+    name := "arrow4s-io",
+    libraryDependencies ++= Dependencies.arrowIO
   )
 
 lazy val spark = (project in file("spark"))
@@ -80,7 +88,7 @@ lazy val spark = (project in file("spark"))
 
 // ----------- Publishing (sbt-ci-release) -----------
 ThisBuild / homepage := Some(url("https://github.com/Platob/arrow4s"))
-ThisBuild / licenses := Seq("MIT" -> url("https://opensource.org/license/mit/"))
+ThisBuild / licenses := Seq("APL2" -> url("https://www.apache.org/licenses/LICENSE-2.0.txt"))
 ThisBuild / scmInfo  := Some(
   ScmInfo(
     url("https://github.com/Platob/arrow4s"),
@@ -89,8 +97,8 @@ ThisBuild / scmInfo  := Some(
 )
 ThisBuild / developers := List(
   Developer(
-    id    = "platob",
-    name  = "Platob",
+    id    = "Platob",
+    name  = "Nicolas",
     email = "nfillot.pro@gmail.com",
     url   = url("https://github.com/Platob")
   )

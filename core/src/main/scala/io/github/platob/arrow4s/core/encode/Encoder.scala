@@ -1,18 +1,8 @@
 package io.github.platob.arrow4s.core.encode
 
-import io.github.platob.arrow4s.core.ArrowRecord
-import io.github.platob.arrow4s.core.encode.Encoders.intEncoder
 import org.apache.arrow.vector._
-import org.apache.arrow.vector.complex.StructVector
-import org.apache.arrow.vector.types.pojo.ArrowType.ArrowTypeID
-import org.apache.arrow.vector.types.pojo.Field
-
-import scala.jdk.CollectionConverters.CollectionHasAsScala
-import scala.reflect.runtime.universe.{TypeTag, typeOf}
 
 trait Encoder {
-  def isOptional: Boolean
-
   /**
    * Ensure that the vector has at least the given capacity.
    * @param vector Input vector
@@ -21,32 +11,6 @@ trait Encoder {
   @inline def ensureCapacity(vector: FieldVector, capacity: Int): Unit = {
     if (capacity > vector.getValueCapacity) {
       vector.setValueCount(capacity)
-    }
-  }
-
-  /**
-   * Set the value at the given index, handling nulls appropriately.
-   * @param vector Input vector
-   * @param index Index to set
-   * @param value Value to set, can be null
-   */
-  @inline def setAnyValue(vector: FieldVector, index: Int, value: Any): Unit
-
-  /**
-   * Set multiple values starting at the given index.
-   * @param vector Input vector
-   * @param startIndex Starting index to set
-   * @param values Values to set
-   */
-  @inline def setAnyValues(vector: FieldVector, startIndex: Int, values: Iterable[Any]): Unit = {
-    this.ensureCapacity(vector, startIndex + values.size)
-
-    values.zipWithIndex.foreach { case (value, i) =>
-      setAnyValue(
-        vector = vector,
-        index = startIndex + i,
-        value = value
-      )
     }
   }
 }
@@ -60,6 +24,30 @@ object Encoder {
      * @param value Value to set
      */
     @inline def set(vector: V, index: Int, value: T): Unit
+
+    /**
+     * Set the value at the given index, or set to null if the value is null.
+     * @param vector Input vector
+     * @param index Index to set
+     * @param value Value to set, or null
+     */
+    @inline def setOrNull(vector: V, index: Int, value: T): Unit = {
+      if (value == null.asInstanceOf[T]) vector.setNull(index)
+      else set(vector, index, value)
+    }
+
+    /**
+     * Set the value at the given index.
+     * @param vector Input vector
+     * @param index Index to set
+     * @param value Optional value to set
+     */
+    @inline def setOption(vector: V, index: Int, value: Option[T]): Unit = {
+      value match {
+        case Some(v) => set(vector, index, v)
+        case None => vector.setNull(index)
+      }
+    }
 
     /**
      * Safely set the value at the given index, ensuring capacity first.
@@ -94,91 +82,6 @@ object Encoder {
      */
     @inline def setNull(vector: V, index: Int): Unit = {
       vector.setNull(index)
-    }
-
-    /**
-     * Set the value at the given index, handling nulls appropriately.
-     * @param vector Input vector
-     * @param index Index to set
-     * @param value Value to set, can be null
-     */
-    @inline def setAnyValue(vector: FieldVector, index: Int, value: Any): Unit = {
-      if (value == null) {
-        setNull(
-          vector = vector.asInstanceOf[V],
-          index = index
-        )
-      } else {
-        set(
-          vector = vector.asInstanceOf[V],
-          index = index,
-          value = value.asInstanceOf[T]
-        )
-      }
-    }
-  }
-
-  def struct(field: Field): Encoder.Typed[ArrowRecord, StructVector] = {
-    struct(field.getChildren.asScala.toSeq)
-  }
-
-  def struct(fields: Seq[Field]): Encoder.Typed[ArrowRecord, StructVector] = {
-    new Encoder.Typed[ArrowRecord, StructVector] {
-      val isOptional: Boolean = false
-
-      val encoders: Seq[Encoder] = fields.map(field => Encoder.from(field))
-
-      override def set(vector: StructVector, index: Int, value: ArrowRecord): Unit = {
-        val fieldVectors = vector.getChildrenFromFields
-        var i: Int = 0
-
-        vector.setIndexDefined(index)
-
-        fieldVectors.stream().forEach(fieldVector => {
-          val encoder = encoders(i)
-          val childValue = value.getOrNull(name = fieldVector.getName)
-
-          encoder.setAnyValue(vector = fieldVector, index = index, value = childValue)
-          i += 1
-        })
-      }
-    }
-  }
-
-  def proxy[Logical : TypeTag, Primitive, V <: FieldVector](
-    encoder: Typed[Primitive, V],
-    apply: Logical => Primitive
-  ): Typed[Logical, V] = {
-    val optional = typeOf[Logical] =:= typeOf[Option[_]]
-
-    new Typed[Logical, V] {
-      val isOptional: Boolean = optional
-
-      def set(vector: V, index: Int, value: Logical): Unit = {
-        encoder.set(vector, index, apply(value))
-      }
-    }
-  }
-
-  def optional[T, V <: FieldVector](encoder: Typed[T, V]): Typed[Option[T], V] = new Typed[Option[T], V] {
-    val isOptional: Boolean = true
-
-    def set(vector: V, index: Int, value: Option[T]): Unit = {
-      value match {
-        case Some(v) => encoder.set(vector, index, v)
-        case None => vector.setNull(index)
-      }
-    }
-  }
-
-  def from(field: types.pojo.Field): Encoder = {
-    field.getType.getTypeID match {
-      case ArrowTypeID.Int =>
-        intEncoder
-      case ArrowTypeID.Struct =>
-        struct(field)
-      case _ =>
-        throw new IllegalArgumentException(s"Unsupported data type: ${field.getType}")
     }
   }
 }

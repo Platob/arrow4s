@@ -34,11 +34,16 @@ On pushing a **tag** like `v0.1.0`, the CI pipeline will publish:
 ## Coordinates
 Group is pre-set to `io.github.platob`. Update `organization` if needed.
 
+## Example usage
 ```scala
 import io.github.platob.arrow4s.core.ArrowArray
+import io.github.platob.arrow4s.core.cast.NumericOpsPlus._
 
-val values = Seq(1, 2, 3, 4, 5)
-val array = ArrowArray(1, 2, 3, 4, 5)
+val values: Seq[Int] = Seq(1, 2, 3, 4, 5)
+val array = ArrowArray.make[Long](values.map(_.toLong):_*).toSeq
+
+val values: Seq[Option[Int]] = Seq(Some(1), None, Some(3), Some(4), None)
+val array = ArrowArray.makeOption(values: _*).toSeqOption
 
 array == values
 ```

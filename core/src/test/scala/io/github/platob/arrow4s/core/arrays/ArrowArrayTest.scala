@@ -1,39 +1,28 @@
 package io.github.platob.arrow4s.core.arrays
 
-import io.github.platob.arrow4s.core.arrays.ArrowArrayTest.UnknownType
+import io.github.platob.arrow4s.core.cast.NumericOpsPlus._
+import io.github.platob.arrow4s.core.values.UInt
 import munit.FunSuite
 
 class ArrowArrayTest extends FunSuite {
-  test("ArrowArray.build should create BooleanArray for non-nullable BOOLEAN type") {
-    val values = Seq(true, false, true, false, true)
-    val array = ArrowArray(true, false, true, false, true)
+  test("ArrowArray.make Long array with cast") {
+    val values: Seq[Int] = Seq(1, 2, 3, 4, 5)
+    val array = ArrowArray.make[Long](values.map(_.toLong):_*).toSeq
 
-    assertEquals(array, values)
+    assertEquals(array, values.map(_.toLong))
   }
 
-  test("ArrowArray.build should create BooleanArray for nullable BOOLEAN type") {
-    val values = Seq(Some(true), None, Some(false), Some(true), None)
-    val array = ArrowArray(Some(true), None, Some(false), Some(true), None)
+  test("ArrowArray.make UInt array with cast") {
+    val values: Seq[Int] = Seq(1, 2, 3, 4, 5)
+    val array = ArrowArray.make[UInt](values.map(UInt.trunc):_*).toSeq
 
-    assertEquals(array, values)
+    assertEquals(array, values.map(UInt.trunc))
   }
 
-  test("ArrowArray.build should create IntArray for non-nullable INT type") {
-    val values = Seq(1, 2, 3, 4, 5)
-    val array = ArrowArray(1, 2, 3, 4, 5)
+  test("ArrowArray.make INT with optional") {
+    val values: Seq[Option[Int]] = Seq(Some(1), None, Some(3), Some(4), None)
+    val array = ArrowArray.makeOption(values: _*).toSeqOption
 
     assertEquals(array, values)
-  }
-
-  test("ArrowArray.build should throw for unsupported type") {
-    val exception = intercept[IllegalArgumentException] {
-      ArrowArray[UnknownType](new UnknownType())
-    }
-    assertEquals(exception.getMessage, "Unsupported Scala type for Arrow conversion: io.github.platob.arrow4s.core.arrays.ArrowArrayTest.UnknownType")
   }
 }
-
-object ArrowArrayTest {
-  class UnknownType {}
-}
-

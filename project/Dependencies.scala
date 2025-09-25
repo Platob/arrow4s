@@ -15,11 +15,16 @@ object Dependencies {
     "org.scalameta" %% "munit" % V.munit % Test
   )
 
-  val arrow = Seq(
+  val arrowCore = Seq(
     // Apache Arrow
     "org.apache.arrow" % "arrow-vector" % V.arrow,
     "org.apache.arrow" % "arrow-memory-netty" % V.arrow,
-    "org.apache.arrow" % "arrow-format" % V.arrow
+  )
+
+  val arrowIO = arrowCore ++ Seq(
+    "org.apache.arrow" % "arrow-format" % V.arrow,
+    "org.apache.arrow" % "arrow-compression" % V.arrow,
+    "org.apache.arrow" % "arrow-dataset" % V.arrow
   )
 
   val sparkProvided = Seq(

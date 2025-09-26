@@ -39,11 +39,10 @@ Group is pre-set to `io.github.platob`. Update `organization` if needed.
 import io.github.platob.arrow4s.core.ArrowArray
 import io.github.platob.arrow4s.core.cast.NumericOpsPlus._
 
-val values: Seq[Int] = Seq(1, 2, 3, 4, 5)
-val array = ArrowArray.make[Long](values.map(_.toLong):_*).toSeq
+// Raw build
+val values = Seq(1, 2, 3, 4, 5)
+val array = ArrowArray(values:_*)
 
-val values: Seq[Option[Int]] = Seq(Some(1), None, Some(3), Some(4), None)
-val array = ArrowArray.makeOption(values: _*).toSeqOption
-
-array == values
+array.toSeq == values
+array.as[Option[Int]].toSeq == values.map(Option.apply)
 ```

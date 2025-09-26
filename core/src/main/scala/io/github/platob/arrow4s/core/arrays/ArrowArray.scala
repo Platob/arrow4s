@@ -1,7 +1,8 @@
 package io.github.platob.arrow4s.core
 package arrays
 
-import io.github.platob.arrow4s.core.cast.AnyOpsPlus
+import io.github.platob.arrow4s.core.cast.{AnyEncoder, LogicalEncoder}
+import io.github.platob.arrow4s.core.reflection.ReflectUtils
 import io.github.platob.arrow4s.core.types.ArrowField
 import org.apache.arrow.memory.{BufferAllocator, RootAllocator}
 import org.apache.arrow.vector._
@@ -17,11 +18,15 @@ trait ArrowArray extends AutoCloseable {
 
   def isPrimitive: Boolean
 
+  def isOptional: Boolean
+
   def field: Field = vector.getField
 
   def nullable: Boolean = field.isNullable
 
   def length: Int = vector.getValueCount
+
+  def currentType: ru.Type
 
   // Memory management
   def ensureCapacity(capacity: Int): this.type = {
@@ -40,61 +45,51 @@ trait ArrowArray extends AutoCloseable {
   }
 
   // Mutation
-  def setValue[Other](index: Int, value: Other)(implicit encoder: AnyOpsPlus[Other]): this.type
-
-  def setOptionalValue[Other](index: Int, value: Option[Other])(implicit encoder: AnyOpsPlus[Other]): this.type = {
-    value match {
-      case Some(v) => setValue(index, v)
-      case None    => vector.setNull(index)
-    }
+  @inline def setNull(index: Int): this.type = {
+    vector.setNull(index)
 
     this
   }
 
-  def setValues[Other](startIndex: Int, values: Iterable[Other])(implicit encoder: AnyOpsPlus[Other]): this.type = {
-    var i = startIndex
+  // Cast
+  def as[C : ru.TypeTag]: ArrowArray.Typed[C, _] = {
+    val casted = as(ru.typeOf[C])
 
-    values.foreach { v =>
-      setValue(i, v)
-      i += 1
-    }
-
-    this
+    casted.asInstanceOf[ArrowArray.Typed[C, _]]
   }
 
-  def setOptionalValues[Other](startIndex: Int, values: Iterable[Option[Other]])(implicit encoder: AnyOpsPlus[Other]): this.type = {
-    var i = startIndex
+  def as(tpe: ru.Type): ArrowArray
 
-    values.foreach { v =>
-      setOptionalValue(i, v)
-      i += 1
-    }
+  def complexAs(tpe: ru.Type): ArrowArray =
+    throw new UnsupportedOperationException(s"Complex casting is not supported for $this")
 
-    this
-  }
+  def toOptional: OptionArray[_, _]
 
   // AutoCloseable
   def close(): Unit = vector.close()
 }
 
 object ArrowArray {
-  trait Typed[T, V <: FieldVector] extends ArrowArray {
-    def converter: AnyOpsPlus[T]
+  abstract class Typed[T : ru.TypeTag, V <: FieldVector] extends ArrowArray {
+    def encoder: AnyEncoder.Arrow[T, V]
 
     def vector: V
 
+    @inline def indices: Range = 0 until length
+
+    @inline lazy val currentType: ru.Type = ru.typeOf[T]
+
     // Accessors
-    def apply(index: Int): T = getValue(index)
+    @inline def apply(index: Int): T = getValue(index)
 
-    def getValue(index: Int): T
-
-    def getOption(index: Int): Option[T] = {
-      if (vector.isNull(index)) None
-      else Some(getValue(index))
-    }
+    @inline def getValue(index: Int): T = encoder.getVector(vector = this.vector, index = index)
 
     // Mutators
-    def setValue(index: Int, value: T): this.type
+    def setValue(index: Int, value: T): this.type = {
+      encoder.setVector(vector = this.vector, index = index, value = value)
+
+      this
+    }
 
     def setValues(startIndex: Int, values: Iterable[T]): this.type = {
       var i = startIndex
@@ -107,60 +102,81 @@ object ArrowArray {
       this
     }
 
-    // Getters
-    def toSeq: Seq[T] = (0 until length).map(getValue)
+    // Collections
+    def toSeq: IndexedSeq[T] = indices.map(getValue)
 
-    def toSeqOption: Seq[Option[T]] = (0 until length).map(getOption)
-  }
+    // Cast
+    override def as[C : ru.TypeTag]: ArrowArray.Typed[C, _] = {
+      val castTo = ReflectUtils.getType[T]
+      val casted = as(castTo)
 
-  class Logical[L, T](
-    val underlying: Typed[T, FieldVector],
-    val toLogical: T => L,
-    val toPhysical: L => T
-  ) extends Typed[L, FieldVector] {
-    val converter: AnyOpsPlus.Logical[L, T] = AnyOpsPlus
-      .logical(to = toLogical, from = toPhysical)(underlying.converter)
-
-    def vector: FieldVector = underlying.vector
-
-    override def isPrimitive: Boolean = underlying.isPrimitive
-
-    override def getValue(index: Int): L = toLogical(underlying.getValue(index))
-
-    override def setValue(index: Int, value: L): this.type = {
-      underlying.setValue(index, toPhysical(value))
-
-      this
+      casted.asInstanceOf[ArrowArray.Typed[C, _]]
     }
 
-    override def setValue[Other](startIndex: Int, value: Other)(implicit encoder: AnyOpsPlus[Other]): Logical.this.type = {
-      underlying.setValue[Other](startIndex, value)(encoder)
+    def as(castTo: ru.Type): ArrowArray = {
+      if (this.currentType == castTo)
+        return this
 
-      this
+      (ReflectUtils.isOption(this.currentType), ReflectUtils.isOption(castTo)) match {
+        case (true, true) =>
+          val innerFrom = ReflectUtils.getTypeArgs(this.currentType).head
+          val innerTo = ReflectUtils.getTypeArgs(castTo).head
+
+          if (innerFrom == innerTo) {
+            this
+          } else {
+            complexAs(innerTo).toOptional
+          }
+        case (true, false) =>
+          // Unwrap option and cast inner type
+          val innerFrom = ReflectUtils.getTypeArgs(this.currentType).head
+
+          if (innerFrom == castTo) {
+            this
+          } else {
+            complexAs(castTo)
+          }
+        case (false, true) =>
+          // Wrap in option
+          if (this.currentType == ReflectUtils.getTypeArgs(castTo).head) {
+            this.toOptional
+          } else {
+            complexAs(ReflectUtils.getTypeArgs(castTo).head).toOptional
+          }
+        case (false, false) =>
+          // Direct cast
+          complexAs(castTo)
+      }
+    }
+
+    override def toOptional: OptionArray[T, V] = {
+      val optEncoder = LogicalEncoder.optionalArrow[T, V](encoder)
+
+      new OptionArray[T, V](
+        array = this,
+        encoder = optEncoder
+      )
     }
   }
 
   // Factory methods
-  def make[T : ru.TypeTag](values: T*)(implicit encoder: AnyOpsPlus[T]): ArrowArray.Typed[T, _] = {
-    val field = ArrowField.fromScala[T]
-    val allocator = new RootAllocator()
-    val vector = emptyVector(field, allocator, values.size)
-    val array = fromVector(vector)
+  def apply[T : ru.TypeTag](vector: FieldVector): ArrowArray.Typed[T, _] = {
+    val array = fromVector(vector).as[T]
 
-    array.setValues[T](0, values)(encoder)
-
-    array.asInstanceOf[ArrowArray.Typed[T, _]]
+    array
   }
 
-  def makeOption[T : ru.TypeTag](values: Option[T]*)(implicit encoder: AnyOpsPlus[T]): ArrowArray.Typed[T, _] = {
+  def apply[T : ru.TypeTag](values: T*): ArrowArray.Typed[T, _] = make(values)
+
+  def make[T : ru.TypeTag](values: Seq[T]): ArrowArray.Typed[T, _] = {
     val field = ArrowField.fromScala[T]
     val allocator = new RootAllocator()
     val vector = emptyVector(field, allocator, values.size)
-    val array = fromVector(vector)
+    val array = fromVector(vector).as[T]
 
-    array.setOptionalValues[T](0, values)(encoder)
+    array.setValues(0, values)
 
-    array.asInstanceOf[ArrowArray.Typed[T, _]]
+    array
   }
 
   def fromVector(vector: ValueVector): ArrowArray = {

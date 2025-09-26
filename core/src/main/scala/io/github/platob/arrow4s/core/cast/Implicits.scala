@@ -1,47 +1,13 @@
 package io.github.platob.arrow4s.core.cast
 
-import io.github.platob.arrow4s.core.ArrowRecord
-import io.github.platob.arrow4s.core.arrays.ArrowArray
 import io.github.platob.arrow4s.core.values.{UByte, UInt, ULong, UShort}
+import org.apache.arrow.vector._
 
 import java.math.BigInteger
 
-trait NumericOpsPlus[T] extends AnyOpsPlus[T] {
-  val maxValue: T
-  val minValue: T
-
-  override def toBoolean(value: T): Boolean = if (value == zero) false else true
-  override def fromBoolean(value: Boolean): T = if (value) one else zero
-
-  override def toInstant(value: T): java.time.Instant = {
-    val sn = toBigDecimal(value).divideAndRemainder(java.math.BigDecimal.valueOf(1000))
-
-    java.time.Instant.ofEpochSecond(sn(0).longValueExact(), sn(1).movePointRight(9).longValueExact())
-  }
-  override def fromInstant(value: java.time.Instant): T = {
-    val seconds = java.math.BigDecimal.valueOf(value.getEpochSecond).multiply(java.math.BigDecimal.valueOf(1000))
-    val nanos = java.math.BigDecimal.valueOf(value.getNano).divide(java.math.BigDecimal.valueOf(1e6))
-
-    fromBigDecimal(seconds.add(nanos))
-  }
-
-  override def toArrowArray(value: T): ArrowArray = {
-    throw new NotImplementedError(s"Cannot convert $value to ArrowArray without knowing the target type")
-  }
-  override def fromArrowArray(array: ArrowArray): T = {
-    throw new NotImplementedError(s"Cannot convert ArrowArray to target type without knowing the target type")
-  }
-
-  override def toArrowRecord(value: T): ArrowRecord = {
-    throw new NotImplementedError(s"Cannot convert $value to ArrowRecord without knowing the target type")
-  }
-  override def fromArrowRecord(record: ArrowRecord): T = {
-    throw new NotImplementedError(s"Cannot convert ArrowRecord to target type without knowing the target type")
-  }
-}
-
-object NumericOpsPlus {
-  implicit val byteOps: NumericOpsPlus[Byte] = new NumericOpsPlus[Byte] {
+object Implicits {
+  // Numeric Encoders
+  implicit val byteOps: NumericEncoder.Arrow[Byte, TinyIntVector] = new NumericEncoder.Arrow[Byte, TinyIntVector] {
     override val maxValue: Byte = Byte.MinValue
     override val minValue: Byte = Byte.MaxValue
 
@@ -81,9 +47,19 @@ object NumericOpsPlus {
 
     override def toBigDecimal(value: Byte): java.math.BigDecimal = java.math.BigDecimal.valueOf(value.toLong)
     override def fromBigDecimal(value: java.math.BigDecimal): Byte = value.byteValue
+
+    // Mutator for Arrow Vectors
+    override def setVector(vector: TinyIntVector, index: Int, value: Byte): Unit = {
+      vector.set(index, value)
+    }
+
+    // Accessor for Arrow Vectors
+    override def getVector(vector: TinyIntVector, index: Int): Byte = {
+      vector.get(index)
+    }
   }
 
-  implicit val ubyteOps: NumericOpsPlus[UByte] = new NumericOpsPlus[UByte] {
+  implicit val ubyteOps: NumericEncoder.Arrow[UByte, UInt1Vector] = new NumericEncoder.Arrow[UByte, UInt1Vector] {
     override val maxValue: UByte = UByte.MaxValue
     override val minValue: UByte = UByte.MinValue
 
@@ -104,43 +80,44 @@ object NumericOpsPlus {
     override def fromBoolean(value: Boolean): UByte = if (value) UByte(1) else UByte(0)
 
     override def toByte(value: UByte): Byte = value.toByte
-
     override def fromByte(value: Byte): UByte = UByte.trunc(value.toInt & 0xFF)
 
     override def toUByte(value: UByte): UByte = value
-
     override def fromUByte(value: UByte): UByte = value
 
     override def toShort(value: UByte): Short = value.toShort
-
     override def fromShort(value: Short): UByte = UByte.trunc(value.toInt & 0xFF)
 
     override def toInt(value: UByte): Int = value.toInt
-
     override def fromInt(value: Int): UByte = UByte.trunc(value)
 
     override def toLong(value: UByte): Long = value.toLong
-
     override def fromLong(value: Long): UByte = UByte.trunc(value)
 
     override def toFloat(value: UByte): Float = value.toFloat
-
     override def fromFloat(value: Float): UByte = UByte.trunc(value.toInt)
 
     override def toDouble(value: UByte): Double = value.toDouble
-
     override def fromDouble(value: Double): UByte = UByte.trunc(value.toLong)
 
     override def toBigInteger(value: UByte): BigInteger = value.toBigInteger
-
     override def fromBigInteger(value: BigInteger): UByte = UByte.trunc(value.intValue)
 
     override def toBigDecimal(value: UByte): java.math.BigDecimal = value.toBigDecimal
-
     override def fromBigDecimal(value: java.math.BigDecimal): UByte = UByte.trunc(value.longValue)
+
+    // Mutator for Arrow Vectors
+    override def setVector(vector: UInt1Vector, index: Int, value: UByte): Unit = {
+      vector.set(index, value.toInt)
+    }
+
+    // Accessor for Arrow Vectors
+    override def getVector(vector: UInt1Vector, index: Int): UByte = {
+      this.fromInt(vector.get(index))
+    }
   }
 
-  implicit val shortOps: NumericOpsPlus[Short] = new NumericOpsPlus[Short] {
+  implicit val shortOps: NumericEncoder.Arrow[Short, SmallIntVector] = new NumericEncoder.Arrow[Short, SmallIntVector] {
     override val maxValue: Short = Short.MaxValue
     override val minValue: Short = Short.MinValue
 
@@ -180,9 +157,19 @@ object NumericOpsPlus {
 
     override def toBigDecimal(value: Short): java.math.BigDecimal = java.math.BigDecimal.valueOf(value.toLong)
     override def fromBigDecimal(value: java.math.BigDecimal): Short = value.shortValue
+
+    // Mutator for Arrow Vectors
+    override def setVector(vector: SmallIntVector, index: Int, value: Short): Unit = {
+      vector.set(index, value)
+    }
+
+    // Accessor for Arrow Vectors
+    override def getVector(vector: SmallIntVector, index: Int): Short = {
+      vector.get(index)
+    }
   }
 
-  implicit val ushortOps: NumericOpsPlus[UShort] = new NumericOpsPlus[UShort] {
+  implicit val ushortOps: NumericEncoder.Arrow[UShort, UInt2Vector] = new NumericEncoder.Arrow[UShort, UInt2Vector] {
     override val maxValue: UShort = UShort.MaxValue
     override val minValue: UShort = UShort.MinValue
 
@@ -235,9 +222,19 @@ object NumericOpsPlus {
 
     override def toBigDecimal(value: UShort): java.math.BigDecimal = value.toBigDecimal
     override def fromBigDecimal(value: java.math.BigDecimal): UShort = UShort.trunc(value.longValue)
+
+    // Mutator for Arrow Vectors
+    override def setVector(vector: UInt2Vector, index: Int, value: UShort): Unit = {
+      vector.set(index, value.toInt)
+    }
+
+    // Accessor for Arrow Vectors
+    override def getVector(vector: UInt2Vector, index: Int): UShort = {
+      this.fromInt(vector.get(index))
+    }
   }
 
-  implicit val intOps: NumericOpsPlus[Int] = new NumericOpsPlus[Int] {
+  implicit val intOps: NumericEncoder.Arrow[Int, IntVector] = new NumericEncoder.Arrow[Int, IntVector] {
     override val maxValue: Int = Int.MaxValue
     override val minValue: Int = Int.MinValue
 
@@ -287,9 +284,19 @@ object NumericOpsPlus {
 
     override def toBigDecimal(value: Int): java.math.BigDecimal = java.math.BigDecimal.valueOf(value.toLong)
     override def fromBigDecimal(value: java.math.BigDecimal): Int = value.intValue
+
+    // Mutator for Arrow Vectors
+    override def setVector(vector: IntVector, index: Int, value: Int): Unit = {
+      vector.set(index, value)
+    }
+
+    // Accessor for Arrow Vectors
+    override def getVector(vector: IntVector, index: Int): Int = {
+      vector.get(index)
+    }
   }
 
-  implicit val uintOps: NumericOpsPlus[UInt] = new NumericOpsPlus[UInt] {
+  implicit val uintOps: NumericEncoder.Arrow[UInt, UInt4Vector] = new NumericEncoder.Arrow[UInt, UInt4Vector] {
     override val maxValue: UInt = UInt.MaxValue
     override val minValue: UInt = UInt.MinValue
 
@@ -338,9 +345,19 @@ object NumericOpsPlus {
 
     override def toBigDecimal(value: UInt): java.math.BigDecimal = value.toBigDecimal
     override def fromBigDecimal(value: java.math.BigDecimal): UInt = UInt.trunc(value.longValue)
+
+    // Mutator for Arrow Vectors
+    override def setVector(vector: UInt4Vector, index: Int, value: UInt): Unit = {
+      vector.setWithPossibleTruncate(index, value.toInt)
+    }
+
+    // Accessor for Arrow Vectors
+    override def getVector(vector: UInt4Vector, index: Int): UInt = {
+      this.fromInt(vector.get(index))
+    }
   }
 
-  implicit val longOps: NumericOpsPlus[Long] = new NumericOpsPlus[Long] {
+  implicit val longOps: NumericEncoder.Arrow[Long, BigIntVector] = new NumericEncoder.Arrow[Long, BigIntVector] {
     override val maxValue: Long = Long.MaxValue
     override val minValue: Long = Long.MinValue
 
@@ -398,9 +415,19 @@ object NumericOpsPlus {
 
     override def toBigDecimal(value: Long): java.math.BigDecimal = java.math.BigDecimal.valueOf(value)
     override def fromBigDecimal(value: java.math.BigDecimal): Long = value.longValue
+
+    // Mutator for Arrow Vectors
+    override def setVector(vector: BigIntVector, index: Int, value: Long): Unit = {
+      vector.set(index, value)
+    }
+
+    // Accessor for Arrow Vectors
+    override def getVector(vector: BigIntVector, index: Int): Long = {
+      vector.get(index)
+    }
   }
 
-  implicit val ulongOps: NumericOpsPlus[ULong] = new NumericOpsPlus[ULong] {
+  implicit val ulongOps: NumericEncoder.Arrow[ULong, UInt8Vector] = new NumericEncoder.Arrow[ULong, UInt8Vector] {
     override val maxValue: ULong = ULong.MaxValue
     override val minValue: ULong = ULong.MinValue
 
@@ -451,5 +478,15 @@ object NumericOpsPlus {
 
     override def toBigDecimal(value: ULong): java.math.BigDecimal = value.toBigDecimal
     override def fromBigDecimal(value: java.math.BigDecimal): ULong = ULong.trunc(value.toBigInteger)
+
+    // Mutator for Arrow Vectors
+    override def setVector(vector: UInt8Vector, index: Int, value: ULong): Unit = {
+      vector.set(index, value.toLong)
+    }
+
+    // Accessor for Arrow Vectors
+    override def getVector(vector: UInt8Vector, index: Int): ULong = {
+      this.fromLong(vector.get(index))
+    }
   }
 }

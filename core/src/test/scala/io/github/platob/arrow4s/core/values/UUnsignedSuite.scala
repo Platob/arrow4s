@@ -1,7 +1,7 @@
 
 package io.github.platob.arrow4s.core.values
 
-import io.github.platob.arrow4s.core.cast.{AnyOpsPlus, NumericOpsPlus}
+import io.github.platob.arrow4s.core.cast.Implicits
 import munit.FunSuite
 
 class UUnsignedSuite extends FunSuite {
@@ -13,7 +13,7 @@ class UUnsignedSuite extends FunSuite {
     assertEquals(b.toInt, 3)
 
     // Numeric ops via AnyOpsPlus
-    val N = implicitly[NumericOpsPlus[UByte]]
+    val N = Implicits.ubyteOps
     assertEquals(N.plus(UByte(250), UByte(10)).toInt, 4) // wrap
     assert(N.compare(UByte(1), UByte(2)) < 0)
   }

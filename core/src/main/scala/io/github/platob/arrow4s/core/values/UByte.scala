@@ -36,7 +36,10 @@ object UByte {
     if (0 <= i && i <= 255) new UByte(i.toByte)
     else throw new IllegalArgumentException(s"UByte out of range: $i")
 
-  @inline def trunc(ushort: UShort): UByte = new UByte(ushort.toByte)
+  @inline def trunc(byte: Byte): UByte = new UByte(byte)
+  @inline def trunc(short: Short): UByte = new UByte((short & 0xFF).toByte)
   @inline def trunc(i: Int): UByte = new UByte((i & 0xFF).toByte)
   @inline def trunc(i: Long): UByte = new UByte((i & 0xFF).toByte)
+  @inline def trunc(f: Float): UByte = new UByte((f.toInt & 0xFF).toByte)
+  @inline def trunc(d: Double): UByte = new UByte((d.toInt & 0xFF).toByte)
 }

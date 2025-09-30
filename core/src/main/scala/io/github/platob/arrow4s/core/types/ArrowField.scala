@@ -34,7 +34,7 @@ object ArrowField {
     name: String,
     metadata: Option[Map[String, String]],
   ): Field = {
-    val tpe = typeOf[T]
+    val tpe = typeOf[T].dealias
 
     fromScala(
       tpe,
@@ -108,7 +108,7 @@ object ArrowField {
 
       build(name, new ArrowType.List(), nullable = nullable, metadata = metadata, children = List(child))
     }
-    else if (tpe.typeConstructor =:= typeOf[Map[_, _]].typeConstructor) {
+    else if (ReflectUtils.isMap(tpe)) {
       val keyField = fromScala(
         tpe.typeArgs.head, "key",
         nullable = false, metadata = None
@@ -124,8 +124,11 @@ object ArrowField {
         children = List(keyField, valField)
       )
 
+      // Check if TreeMap
+      val keySorted = ReflectUtils.isSortedMap(tpe)
+
       build(
-        name, new ArrowType.Map(false),
+        name, new ArrowType.Map(keySorted),
         nullable = nullable, metadata = metadata,
         children = List(entries)
       )
@@ -138,7 +141,10 @@ object ArrowField {
         )
       }
 
-      build(name, new ArrowType.Struct(), nullable = nullable, metadata = metadata, children = kids)
+      val m = metadata.getOrElse(Map.empty) ++
+        Map("namespace" -> tpe.typeSymbol.fullName)
+
+      build(name, new ArrowType.Struct(), nullable = nullable, metadata = Some(m), children = kids)
     }
     else if (ReflectUtils.isProduct(tpe)) {
       val ctor   = tpe.decl(termNames.CONSTRUCTOR).asMethod

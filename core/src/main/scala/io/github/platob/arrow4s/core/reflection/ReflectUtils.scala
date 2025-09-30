@@ -1,6 +1,6 @@
 package io.github.platob.arrow4s.core.reflection
 
-import scala.reflect.runtime.universe.{Type, TypeTag, termNames, typeOf}
+import scala.reflect.runtime.universe.{Type, TypeTag, typeOf}
 
 object ReflectUtils {
   def isOption(tpe: Type): Boolean =
@@ -18,11 +18,20 @@ object ReflectUtils {
       tc =:= typeOf[Iterable[_]].typeConstructor
   }
 
+  def isMap(tpe: Type): Boolean =
+    tpe.typeConstructor =:= typeOf[scala.collection.Map[_, _]].typeConstructor
+
+  def isSortedMap(tpe: Type): Boolean =
+    tpe.typeConstructor =:= typeOf[collection.immutable.SortedMap[_, _]].typeConstructor
+
   def getType[T: TypeTag]: Type =
     typeOf[T]
 
   def getTypeArgs(tpe: Type): List[Type] =
     tpe.typeArgs
+
+  def typeArgument(tpe: Type, index: Int): Type =
+    tpe.typeArgs(index)
 
   def defaultName[T : TypeTag]: String =
     defaultName(typeOf[T])

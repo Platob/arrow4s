@@ -53,6 +53,11 @@ object ULong {
 
   private val Mask = new java.math.BigInteger("FFFFFFFFFFFFFFFF", 16)
 
+  @inline def trunc(str: String): ULong = trunc(new BigInteger(str))
+  @inline def trunc(byte: Byte): ULong = new ULong(byte & 0xFFL)
+  @inline def trunc(short: Short): ULong = new ULong(short & 0xFFFFL)
+  @inline def trunc(i: Int): ULong = new ULong(i & 0xFFFFFFFFFFFFFFFFL)
+  @inline def trunc(l: Long): ULong = new ULong(l)
   @inline def trunc(bi: BigInt): ULong = trunc(bi.bigInteger)
   @inline def trunc(bi: BigInteger): ULong = new ULong(bi.and(Mask).longValue)
 }

@@ -40,9 +40,9 @@ import io.github.platob.arrow4s.core.ArrowArray
 import io.github.platob.arrow4s.core.cast.NumericOpsPlus._
 
 // Raw build
-val values = Seq(1, 2, 3, 4, 5)
+val values: Seq[Int] = Seq(1, 2, 3, 4, 5)
 val array = ArrowArray(values:_*)
 
 array.toSeq == values
-array.as[Option[Int]].toSeq == values.map(Option.apply)
+array.as[Option[Double]].toSeq == values.map(v => Option(v.toDouble))
 ```

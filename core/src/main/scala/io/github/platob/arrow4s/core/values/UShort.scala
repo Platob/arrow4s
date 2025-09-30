@@ -34,7 +34,8 @@ object UShort {
     if (0 <= i && i <= 65535) new UShort(i.toShort)
     else throw new IllegalArgumentException(s"UShort out of range: $i")
 
-  @inline def from(ubyte: UByte): UShort = new UShort(ubyte.toShort)
+  @inline def trunc(byte: Byte): UShort = new UShort((byte & 0xFF).toShort)
+  @inline def trunc(short: Short): UShort = new UShort(short)
   @inline def trunc(i: Int): UShort = new UShort((i & 0xFFFF).toShort)
   @inline def trunc(i: Long): UShort = new UShort((i & 0xFFFF).toShort)
   @inline def fromChar(c: Char): UShort = new UShort(c.toShort)

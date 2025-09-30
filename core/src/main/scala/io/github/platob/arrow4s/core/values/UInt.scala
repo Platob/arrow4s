@@ -34,8 +34,12 @@ final class UInt private (private val i: Int) extends AnyVal {
 object UInt {
   val MinValue: UInt = new UInt(0)
   val MaxValue: UInt = new UInt(-1) // 0xFFFFFFFF
+  val Zero: UInt = MinValue
+  val One: UInt = new UInt(1)
 
   @inline def trunc(str: String): UInt = trunc(str.toLong)
+  @inline def trunc(byte: Byte): UInt = trunc(byte & 0xFF)
+  @inline def trunc(short: Short): UInt = trunc(short & 0xFFFF)
   @inline def trunc(i: Int): UInt = trunc(i & 0xFFFFFFFFL)
   @inline def trunc(l: Long): UInt = new UInt((l & 0xFFFFFFFF).toInt)
 }

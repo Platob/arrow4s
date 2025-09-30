@@ -1,7 +1,7 @@
 package io.github.platob.arrow4s.core
 package arrays
 
-import io.github.platob.arrow4s.core.cast.{AnyEncoder, LogicalEncoder}
+import io.github.platob.arrow4s.core.cast.TypeConverter
 import io.github.platob.arrow4s.core.reflection.ReflectUtils
 import io.github.platob.arrow4s.core.types.ArrowField
 import org.apache.arrow.memory.{BufferAllocator, RootAllocator}
@@ -13,6 +13,8 @@ import org.apache.arrow.vector.types.pojo.{ArrowType, Field}
 import scala.reflect.runtime.{universe => ru}
 
 trait ArrowArray extends AutoCloseable {
+  override def toString: String = s"${this.getClass.getName}[$scalaType]($length)"
+
   // Properties
   def vector: FieldVector
 
@@ -20,13 +22,15 @@ trait ArrowArray extends AutoCloseable {
 
   def isOptional: Boolean
 
+  def isLogical: Boolean
+
   def field: Field = vector.getField
 
   def nullable: Boolean = field.isNullable
 
   def length: Int = vector.getValueCount
 
-  def currentType: ru.Type
+  def scalaType: ru.Type
 
   // Memory management
   def ensureCapacity(capacity: Int): this.type = {
@@ -52,123 +56,97 @@ trait ArrowArray extends AutoCloseable {
   }
 
   // Cast
-  def as[C : ru.TypeTag]: ArrowArray.Typed[C, _] = {
-    val casted = as(ru.typeOf[C])
+  def as[C : ru.TypeTag]: ArrowArray.Typed[_, C] = {
+    val casted = as(ru.typeOf[C].dealias)
 
-    casted.asInstanceOf[ArrowArray.Typed[C, _]]
+    casted.asInstanceOf[ArrowArray.Typed[_, C]]
   }
 
-  def as(tpe: ru.Type): ArrowArray
+  def as(castTo: ru.Type): ArrowArray
 
-  def complexAs(tpe: ru.Type): ArrowArray =
-    throw new UnsupportedOperationException(s"Complex casting is not supported for $this")
-
-  def toOptional: OptionArray[_, _]
+  def toOptional(scalaType: ru.Type): OptionArray[_, _]
 
   // AutoCloseable
   def close(): Unit = vector.close()
 }
 
 object ArrowArray {
-  abstract class Typed[T : ru.TypeTag, V <: FieldVector] extends ArrowArray {
-    def encoder: AnyEncoder.Arrow[T, V]
-
+  abstract class Typed[V <: FieldVector, Source] extends ArrowArray {
     def vector: V
+
+    def scalaType: ru.Type
 
     @inline def indices: Range = 0 until length
 
-    @inline lazy val currentType: ru.Type = ru.typeOf[T]
-
     // Accessors
-    @inline def apply(index: Int): T = getValue(index)
+    @inline def apply(index: Int): Source = get(index)
 
-    @inline def getValue(index: Int): T = encoder.getVector(vector = this.vector, index = index)
+    @inline def get(index: Int): Source
+
+    @inline def getOrNull(index: Int): Source = {
+      if (vector.isNull(index)) null.asInstanceOf[Source]
+      else get(index)
+    }
 
     // Mutators
-    def setValue(index: Int, value: T): this.type = {
-      encoder.setVector(vector = this.vector, index = index, value = value)
+    @inline def set(index: Int, value: Source): this.type
+
+    @inline def setOrNull(index: Int, value: Source): this.type = {
+      if (value == null) setNull(index)
+      else set(index, value)
 
       this
     }
 
-    def setValues(startIndex: Int, values: Iterable[T]): this.type = {
-      var i = startIndex
+    @inline def setValues(startIndex: Int, values: Seq[Source]): this.type = {
+      this.ensureCapacity(startIndex + values.size)
 
-      values.foreach { v =>
-        setValue(i, v)
-        i += 1
-      }
+      values.zipWithIndex.foreach { case (v, i) => setOrNull(startIndex + i, v) }
 
       this
     }
 
     // Collections
-    def toSeq: IndexedSeq[T] = indices.map(getValue)
+    def toSeq: IndexedSeq[Source] = indices.map(get)
 
     // Cast
-    override def as[C : ru.TypeTag]: ArrowArray.Typed[C, _] = {
-      val castTo = ReflectUtils.getType[T]
-      val casted = as(castTo)
+    override def as[C : ru.TypeTag]: ArrowArray.Typed[V, C] = {
+      val casted = as(ru.typeOf[C].dealias)
 
-      casted.asInstanceOf[ArrowArray.Typed[C, _]]
+      casted.asInstanceOf[ArrowArray.Typed[V, C]]
     }
 
-    def as(castTo: ru.Type): ArrowArray = {
-      if (this.currentType == castTo)
+    override def as(castTo: ru.Type): ArrowArray = {
+      if (this.scalaType =:= castTo) {
         return this
+      }
 
-      (ReflectUtils.isOption(this.currentType), ReflectUtils.isOption(castTo)) match {
-        case (true, true) =>
-          val innerFrom = ReflectUtils.getTypeArgs(this.currentType).head
-          val innerTo = ReflectUtils.getTypeArgs(castTo).head
+      if (ReflectUtils.isOption(castTo)) {
+        val child = ReflectUtils.typeArgument(castTo, 0)
 
-          if (innerFrom == innerTo) {
-            this
-          } else {
-            complexAs(innerTo).toOptional
-          }
-        case (true, false) =>
-          // Unwrap option and cast inner type
-          val innerFrom = ReflectUtils.getTypeArgs(this.currentType).head
+        return as(child).toOptional(castTo)
+      }
 
-          if (innerFrom == castTo) {
-            this
-          } else {
-            complexAs(castTo)
-          }
-        case (false, true) =>
-          // Wrap in option
-          if (this.currentType == ReflectUtils.getTypeArgs(castTo).head) {
-            this.toOptional
-          } else {
-            complexAs(ReflectUtils.getTypeArgs(castTo).head).toOptional
-          }
-        case (false, false) =>
-          // Direct cast
-          complexAs(castTo)
+      val converter = TypeConverter.get(source = this.scalaType, target = castTo)
+
+      converter match {
+        case tc: TypeConverter[Source, c] @unchecked =>
+          new LogicalArray[V, Source, c](scalaType = tc.targetType, array = this, converter = tc)
       }
     }
 
-    override def toOptional: OptionArray[T, V] = {
-      val optEncoder = LogicalEncoder.optionalArrow[T, V](encoder)
-
-      new OptionArray[T, V](
-        array = this,
-        encoder = optEncoder
+    override def toOptional(scalaType: ru.Type): OptionArray[V, Source] = {
+      new OptionArray[V, Source](
+        scalaType = scalaType,
+        array = this
       )
     }
   }
 
   // Factory methods
-  def apply[T : ru.TypeTag](vector: FieldVector): ArrowArray.Typed[T, _] = {
-    val array = fromVector(vector).as[T]
+  def apply[T : ru.TypeTag](values: T*): ArrowArray.Typed[_, T] = make(values)
 
-    array
-  }
-
-  def apply[T : ru.TypeTag](values: T*): ArrowArray.Typed[T, _] = make(values)
-
-  def make[T : ru.TypeTag](values: Seq[T]): ArrowArray.Typed[T, _] = {
+  def make[T : ru.TypeTag](values: Seq[T]): ArrowArray.Typed[_, T] = {
     val field = ArrowField.fromScala[T]
     val allocator = new RootAllocator()
     val vector = emptyVector(field, allocator, values.size)
@@ -286,8 +264,6 @@ object ArrowArray {
       case _ =>
         throw new IllegalArgumentException(s"Unsupported integer type: $arrowType")
     }
-
-    v.reAlloc()
 
     v
   }

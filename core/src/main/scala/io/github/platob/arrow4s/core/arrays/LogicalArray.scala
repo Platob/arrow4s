@@ -1,13 +1,15 @@
 package io.github.platob.arrow4s.core.arrays
 
+import io.github.platob.arrow4s.core.cast.TypeConverter
 import org.apache.arrow.vector.FieldVector
 
 import scala.reflect.runtime.{universe => ru}
 
-class OptionArray[V <: FieldVector, T](
+class LogicalArray[V <: FieldVector, Source, Target](
   val scalaType: ru.Type,
-  val array: ArrowArray.Typed[V, T],
-) extends ArrowArray.Typed[V, Option[T]] {
+  val array: ArrowArray.Typed[V, Source],
+  val converter: TypeConverter[Source, Target],
+) extends ArrowArray.Typed[V, Target] {
   override def vector: V = array.vector
 
   override def isPrimitive: Boolean = array.isPrimitive
@@ -17,29 +19,25 @@ class OptionArray[V <: FieldVector, T](
   override def isLogical: Boolean = true
 
   // Accessors
-  override def get(index: Int): Option[T] = {
-    if (vector.isNull(index)) None
-    else Some(array.get(index))
+  override def get(index: Int): Target = {
+    val sourceValue = array.get(index)
+    converter.to(sourceValue)
   }
 
   // Mutators
-  override def set(index: Int, value: Option[T]): this.type = {
-    value match {
-      case Some(v) => array.set(index, v)
-      case None => setNull(index)
-    }
+  override def set(index: Int, value: Target): this.type = {
+    val sourceValue = converter.from(value)
+    array.set(index, sourceValue)
 
     this
   }
 
   override def as(castTo: ru.Type): ArrowArray = {
-    if (this.scalaType =:= castTo) {
+    if (this.scalaType =:= castTo)
       return this
-    }
 
-    if (this.array.scalaType =:= castTo) {
+    if (this.array.scalaType =:= castTo)
       return this.array
-    }
 
     this.array.as(castTo)
   }

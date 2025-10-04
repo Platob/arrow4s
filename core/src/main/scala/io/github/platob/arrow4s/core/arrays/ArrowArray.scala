@@ -8,7 +8,7 @@ import io.github.platob.arrow4s.core.types.ArrowField
 import org.apache.arrow.memory.{BufferAllocator, RootAllocator}
 import org.apache.arrow.vector._
 import org.apache.arrow.vector.complex.{ListVector, MapVector, StructVector}
-import org.apache.arrow.vector.types.FloatingPointPrecision
+import org.apache.arrow.vector.types.{DateUnit, FloatingPointPrecision, TimeUnit}
 import org.apache.arrow.vector.types.pojo.ArrowType.ArrowTypeID
 import org.apache.arrow.vector.types.pojo.{ArrowType, Field}
 
@@ -324,6 +324,18 @@ object ArrowArray {
     capacity: Int
   ): FieldVector = {
     val vector = field.getType.getTypeID match {
+      case ArrowTypeID.Binary =>
+        val v = new VarBinaryVector(field, allocator)
+
+        v.setInitialCapacity(capacity)
+
+        v
+      case ArrowTypeID.Utf8 =>
+        val v = new VarCharVector(field, allocator)
+
+        v.setInitialCapacity(capacity)
+
+        v
       case ArrowTypeID.Int =>
         emptyIntegralVector(
           field = field,
@@ -331,14 +343,92 @@ object ArrowArray {
           allocator = allocator,
           capacity = capacity
         )
+      case ArrowTypeID.FloatingPoint =>
+        val arrowType = field.getType.asInstanceOf[ArrowType.FloatingPoint]
+        val v = arrowType.getPrecision match {
+          case FloatingPointPrecision.SINGLE =>
+            val v = new Float4Vector(field, allocator)
+
+            v.setInitialCapacity(capacity)
+
+            v
+          case FloatingPointPrecision.DOUBLE =>
+            val v = new Float8Vector(field, allocator)
+
+            v.setInitialCapacity(capacity)
+
+            v
+          case _ =>
+            throw new IllegalArgumentException(s"Unsupported floating point type: $arrowType")
+        }
+
+        v
       case ArrowTypeID.Bool =>
         val v = new BitVector(field, allocator)
 
         v.setInitialCapacity(capacity)
 
         v
+      case ArrowTypeID.Decimal =>
+        val arrowType = field.getType.asInstanceOf[ArrowType.Decimal]
+        val v = arrowType.getBitWidth match {
+          case 128 =>
+            val v = new DecimalVector(field, allocator)
+
+            v.setInitialCapacity(capacity)
+
+            v
+          case 256 =>
+            val v = new Decimal256Vector(field, allocator)
+
+            v.setInitialCapacity(capacity)
+
+            v
+          case _ =>
+            throw new IllegalArgumentException(s"Unsupported decimal type: $arrowType")
+        }
+
+        v
+      case ArrowTypeID.Timestamp =>
+        val arrowType = field.getType.asInstanceOf[ArrowType.Timestamp]
+
+        val v = arrowType.getUnit match {
+          case TimeUnit.SECOND => new TimeStampSecVector(field, allocator)
+          case TimeUnit.MILLISECOND => new TimeStampMilliVector(field, allocator)
+          case TimeUnit.MICROSECOND => new TimeStampMicroVector(field, allocator)
+          case TimeUnit.NANOSECOND => new TimeStampNanoVector(field, allocator)
+          case _ => throw new IllegalArgumentException(s"Unsupported time unit: ${arrowType.getUnit}")
+        }
+
+        v.setInitialCapacity(capacity)
+
+        v
+      case ArrowTypeID.Date =>
+        val arrowType = field.getType.asInstanceOf[ArrowType.Date]
+
+        val v = arrowType.getUnit match {
+          case DateUnit.DAY => new DateDayVector(field, allocator)
+          case DateUnit.MILLISECOND => new DateMilliVector(field, allocator)
+          case _ => throw new IllegalArgumentException(s"Unsupported time unit: ${arrowType.getUnit}")
+        }
+
+        v.setInitialCapacity(capacity)
+
+        v
       case ArrowTypeID.Struct =>
         val v = new StructVector(field, allocator, null)
+
+        v.setInitialCapacity(capacity)
+
+        v
+      case ArrowTypeID.List =>
+        val v = new ListVector(field, allocator, null)
+
+        v.setInitialCapacity(capacity)
+
+        v
+      case ArrowTypeID.Map =>
+        val v = new MapVector(field, allocator, null)
 
         v.setInitialCapacity(capacity)
 

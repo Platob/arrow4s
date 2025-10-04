@@ -3,6 +3,7 @@ package io.github.platob.arrow4s.core.arrays.primitive
 import io.github.platob.arrow4s.core.arrays.{ArrowArray, LogicalArray}
 import org.apache.arrow.vector.{FieldVector, VarBinaryVector, VarCharVector}
 
+import java.nio.charset.Charset
 import scala.reflect.runtime.{universe => ru}
 
 trait BinaryArray[V <: FieldVector, T] extends PrimitiveArray.Typed[V, T] {
@@ -43,9 +44,9 @@ trait BinaryArray[V <: FieldVector, T] extends PrimitiveArray.Typed[V, T] {
       super.innerAs(tpe)
   }
 
-  def getBytes(index: Int): Array[Byte]
+  @inline def getBytes(index: Int): Array[Byte]
 
-  def setBytes(index: Int, value: Array[Byte]): this.type
+  @inline def setBytes(index: Int, value: Array[Byte]): this.type
 }
 
 object BinaryArray {
@@ -59,7 +60,7 @@ object BinaryArray {
     override def getBytes(index: Int): Array[Byte] = get(index)
 
     override def set(index: Int, value: Array[Byte]): this.type = {
-      vector.set(index, value)
+      vector.setSafe(index, value)
       this
     }
 
@@ -67,23 +68,23 @@ object BinaryArray {
   }
 
   class UTF8Array(override val vector: VarCharVector) extends BinaryArray[org.apache.arrow.vector.VarCharVector, String] {
+    private val charset: Charset = Charset.forName("UTF-8")
+
     override val scalaType: ru.Type = ru.typeOf[String].dealias
 
     override def get(index: Int): String = {
-      val bytes = vector.get(index)
-
-      new String(bytes, "UTF-8")
+      new String(getBytes(index), charset)
     }
 
     override def getBytes(index: Int): Array[Byte] = vector.get(index)
 
     override def set(index: Int, value: String): this.type = {
-      vector.set(index, value.getBytes("UTF-8"))
-      this
+      val b = value.getBytes(charset)
+      setBytes(index, b)
     }
 
     override def setBytes(index: Int, value: Array[Byte]): this.type = {
-      vector.set(index, value)
+      vector.setSafe(index, value)
       this
     }
   }

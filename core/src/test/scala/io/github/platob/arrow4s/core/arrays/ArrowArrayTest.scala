@@ -6,7 +6,7 @@ import munit.FunSuite
 import org.apache.arrow.vector.IntVector
 
 class ArrowArrayTest extends FunSuite {
-  val values: Seq[Int] = Seq(1, 2, 3, 4, 5)
+  val values: Seq[Int] = 0 until 10000
 
   test("ArrowArray.make Long array with cast") {
     val array = ArrowArray(values:_*)
@@ -16,6 +16,13 @@ class ArrowArrayTest extends FunSuite {
     assert(array.as[Int].isInstanceOf[IntArray])
     assert(array.as[Long].isInstanceOf[LogicalArray[IntVector, Int, Long]])
     assertEquals(array.as[Long], values.map(_.toLong))
+  }
+
+  test("ArrowArray.make String array") {
+    val stringValues: Seq[String] = Seq("a", "b", "c", "d", "e")
+    val array = ArrowArray(stringValues:_*)
+
+    assertEquals(array, stringValues)
   }
 
   test("ArrowArray.make UInt array with cast") {

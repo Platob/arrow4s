@@ -57,7 +57,6 @@ trait ArrowArray extends AutoCloseable {
   // Memory management
   def ensureCapacity(capacity: Int): this.type = {
     if (capacity > vector.getValueCapacity) {
-      vector.setInitialCapacity(capacity)
       vector.reAlloc()
     }
 
@@ -109,7 +108,7 @@ trait ArrowArray extends AutoCloseable {
   }
 
   def as(tpe: ru.Type): ArrowArray = {
-    if (this.scalaType =:= tpe) {
+    if (this.scalaType =:= tpe || ReflectUtils.implements(tpe, interface = this.scalaType)) {
       return this
     }
 

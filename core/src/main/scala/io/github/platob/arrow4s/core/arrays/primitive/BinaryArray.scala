@@ -46,7 +46,11 @@ trait BinaryArray[V <: FieldVector, T] extends PrimitiveArray.Typed[V, T] {
 
   @inline def getBytes(index: Int): Array[Byte]
 
+  @inline def getString(index: Int): String = new String(getBytes(index), "UTF-8")
+
   @inline def setBytes(index: Int, value: Array[Byte]): this.type
+
+  @inline def setString(index: Int, value: String): this.type = setBytes(index, value.getBytes("UTF-8"))
 }
 
 object BinaryArray {

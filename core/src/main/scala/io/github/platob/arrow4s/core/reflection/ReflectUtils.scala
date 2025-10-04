@@ -6,6 +6,10 @@ object ReflectUtils {
   def isOption(tpe: Type): Boolean =
     tpe.typeConstructor =:= typeOf[Option[_]].typeConstructor
 
+  def implements(tpe: Type, interface: Type): Boolean = {
+    tpe.baseClasses.exists(_.asType.toType =:= interface)
+  }
+
   def isProduct(tpe: Type): Boolean =
     tpe.typeSymbol.isClass && tpe.typeSymbol.asClass.isCaseClass
 

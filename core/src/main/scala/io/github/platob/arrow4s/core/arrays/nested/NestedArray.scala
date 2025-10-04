@@ -14,20 +14,13 @@ trait NestedArray extends ArrowArray {
 
   override def isLogical: Boolean = false
 
-  private lazy val childrenArrays: Array[Option[ArrowArray]] = Array.fill(cardinality)(None)
+  private lazy val childrenArrays: Seq[ArrowArray] = (0 until this.cardinality).map(i => {
+    val v = this.childVector(i)
 
-  @inline override def childArray(index: Int): ArrowArray = {
-    val cached = childrenArrays(index)
+    ArrowArray.from(v)
+  })
 
-    cached.getOrElse {
-      val childVector = this.childVector(index)
-      val childArray = ArrowArray.from(childVector)
-
-      childrenArrays(index) = Some(childArray)
-
-      childArray
-    }
-  }
+  @inline override def childArray(index: Int): ArrowArray = childrenArrays(index)
 }
 
 object NestedArray {

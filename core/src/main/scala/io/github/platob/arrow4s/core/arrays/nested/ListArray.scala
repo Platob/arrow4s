@@ -30,14 +30,13 @@ class ListArray(val vector: ListVector) extends NestedArray.Typed[ListVector, Ar
   }
 
   override def set(index: Int, value: ArrowArray): this.type = {
-    val (start, end) = (
-      this.vector.getElementStartIndex(index),
-      this.vector.getElementEndIndex(index)
-    )
+    vector.startNewValue(index)
 
     for (i <- 0 until value.length) {
-      elements.setAnyOrNull(start + i, value.getAnyOrNull(i))
+      elements.setAnyOrNull(index + i, value.getAnyOrNull(i))
     }
+
+    vector.endValue(index, value.length)
 
     this
   }

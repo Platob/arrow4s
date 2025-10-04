@@ -30,15 +30,8 @@ class MapArray(val vector: MapVector) extends NestedArray.Typed[MapVector, Arrow
   }
 
   override def set(index: Int, value: ArrowArray): this.type = {
-    val (start, end) = (
-      this.vector.getElementStartIndex(index),
-      this.vector.getElementEndIndex(index)
-    )
+    // TODO: implement
 
-    for (i <- 0 until value.length) {
-      elements.setAnyOrNull(start + i, value.getAnyOrNull(i))
-    }
-
-    this
+    throw new NotImplementedError("Setting values in MapArray is not implemented yet")
   }
 }

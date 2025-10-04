@@ -35,6 +35,8 @@ On pushing a **tag** like `v0.1.0`, the CI pipeline will publish:
 Group is pre-set to `io.github.platob`. Update `organization` if needed.
 
 ## Example usage
+
+### In memory
 ```scala
 import io.github.platob.arrow4s.core.ArrowArray
 import io.github.platob.arrow4s.core.cast.NumericOpsPlus._
@@ -43,6 +45,18 @@ import io.github.platob.arrow4s.core.cast.NumericOpsPlus._
 val values: Seq[Int] = Seq(1, 2, 3, 4, 5)
 val array = ArrowArray(values:_*)
 
-array.toSeq == values
-array.as[Option[Double]].toSeq == values.map(v => Option(v.toDouble))
+array == values
+array.as[Option[Double]] == values.map(v => Option(v.toDouble))
+```
+
+### IPC
+```scala
+import io.github.platob.arrow4s.io.ipc.IPCInput
+import io.github.platob.arrow4s.core.arrays.nested.ArrowRecord
+
+val ipc = IPCInput.file(filePath = path)
+
+val batches = ipc.batches(closeAtEnd = false).toList
+val batch = batches.head
+val record: ArrowRecord = batch(0)
 ```

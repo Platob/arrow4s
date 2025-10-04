@@ -1,48 +1,31 @@
 package io.github.platob.arrow4s.core.arrays
 
-import org.apache.arrow.vector.FieldVector
+import org.apache.arrow.vector.ValueVector
 
 import scala.reflect.runtime.{universe => ru}
 
-class OptionArray[V <: FieldVector, T](
+class OptionArray[V <: ValueVector, T](
   val scalaType: ru.Type,
-  val array: ArrowArray.Typed[V, T],
-) extends ArrowArray.Typed[V, Option[T]] {
-  override def vector: V = array.vector
-
-  override def isPrimitive: Boolean = array.isPrimitive
-
+  val inner: ArrowArray.Typed[V, T],
+) extends ArrowArrayProxy.Typed[V, T, Option[T]] {
   override def isOptional: Boolean = true
-
-  override def isLogical: Boolean = true
 
   // Accessors
   override def get(index: Int): Option[T] = {
-    if (vector.isNull(index)) None
-    else Some(array.get(index))
+    if (inner.isNull(index)) {
+      None
+    } else {
+      Some(inner.get(index))
+    }
   }
 
   // Mutators
   override def set(index: Int, value: Option[T]): this.type = {
     value match {
-      case Some(v) => array.set(index, v)
+      case Some(v) => inner.set(index, v)
       case None => setNull(index)
     }
 
     this
   }
-
-  override def as(castTo: ru.Type): ArrowArray = {
-    if (this.scalaType =:= castTo) {
-      return this
-    }
-
-    if (this.array.scalaType =:= castTo) {
-      return this.array
-    }
-
-    this.array.as(castTo)
-  }
-
-  override def close(): Unit = array.close()
 }

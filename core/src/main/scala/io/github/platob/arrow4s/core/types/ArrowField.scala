@@ -9,7 +9,7 @@ import scala.jdk.CollectionConverters.{MapHasAsJava, SeqHasAsJava}
 import scala.reflect.runtime.universe.{Type, TypeTag, termNames, typeOf}
 
 object ArrowField {
-  private def build(
+  def build(
     name: String,
     at: ArrowType,
     nullable: Boolean,

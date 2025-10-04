@@ -1,33 +1,31 @@
 package io.github.platob.arrow4s.io
 
-import org.apache.arrow.dataset.file.{FileFormat, FileSystemDatasetFactory}
-import org.apache.arrow.dataset.jni.NativeMemoryPool
+import io.github.platob.arrow4s.core.arrays.nested.StructArray
+import org.apache.arrow.dataset.file.FileFormat
 import org.apache.arrow.dataset.scanner.{ScanOptions, Scanner}
-import org.apache.arrow.dataset.source.Dataset
-import org.apache.arrow.memory.{BufferAllocator, RootAllocator}
 import org.apache.arrow.vector.VectorSchemaRoot
 
 trait DataInput {
-  def schemaRoots: Iterator[VectorSchemaRoot]
+  def format: FileFormat
+
+  def scanOptions: ScanOptions
+
+  def javaBatches(closeAtEnd: Boolean): Iterator[VectorSchemaRoot]
+
+  def batches(closeAtEnd: Boolean): Iterator[StructArray] = {
+    this.javaBatches(closeAtEnd = closeAtEnd).map(r => {
+      StructArray.from(r)
+    })
+  }
 }
 
 object DataInput {
   trait File extends DataInput {
-    def factory: FileSystemDatasetFactory
+    val path: String
 
-    def scanOptions: ScanOptions
+    def scanner: Scanner
 
-    def dataset: Dataset = {
-      val ds = factory.finish()
-
-      ds
-    }
-
-    def scanner: Scanner = {
-      dataset.newScan(scanOptions)
-    }
-
-    def schemaRoots: Iterator[VectorSchemaRoot] = {
+    def javaBatches(closeAtEnd: Boolean): Iterator[VectorSchemaRoot] = {
       val r = this.scanner.scanBatches()
 
       new Iterator[VectorSchemaRoot] with AutoCloseable {
@@ -43,7 +41,8 @@ object DataInput {
           }
 
         override def hasNext: Boolean = {
-          if (!loaded) close()
+          if (!loaded && closeAtEnd) close()
+
           loaded
         }
 
@@ -56,27 +55,6 @@ object DataInput {
           root
         }
       }
-    }
-  }
-
-  def file(
-    path: String,
-    format: FileFormat,
-    scan: ScanOptions = new ScanOptions(64 * 1024),
-    allocator: BufferAllocator = new RootAllocator(),
-    cppMemoryPool: NativeMemoryPool = NativeMemoryPool.getDefault
-  ): File = {
-    val f = new FileSystemDatasetFactory(
-      allocator,
-      cppMemoryPool,
-      format,
-      path
-    )
-
-    new File {
-      override val factory: FileSystemDatasetFactory = f
-
-      override val scanOptions: ScanOptions = scan
     }
   }
 }

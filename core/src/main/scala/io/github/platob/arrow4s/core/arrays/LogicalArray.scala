@@ -16,7 +16,7 @@ class LogicalArray[
   val scalaType: ru.Type,
   val inner: A,
   val getter: (LogicalArray[A, V, Inner, Outer], Int) => Outer,
-  val setter: (LogicalArray[A, V, Inner, Outer], Int, Outer) => Any,
+  val setter: (LogicalArray[A, V, Inner, Outer], Int, Outer) => Unit,
   val children: Seq[ArrowArray.Typed[_, _]]
 ) extends ArrowArrayProxy.Typed[V, Inner, Outer] {
   override def isLogical: Boolean = true
@@ -32,8 +32,8 @@ class LogicalArray[
     this
   }
 
-  override def toArray(start: Int, size: Int): Array[Outer] = {
-    (start until (start + size)).map(get).toArray
+  override def toArray(start: Int, end: Int): Array[Outer] = {
+    (start until end).map(get).toArray
   }
 }
 
@@ -166,6 +166,7 @@ object LogicalArray {
     val setter = (arr: LogicalArray[A, V, Inner, Outer], index: Int, value: Outer) => {
       val physicalValue = toPhysical(value)
       arr.inner.set(index, physicalValue)
+      ()
     }
 
     new LogicalArray[A, V, Inner, Outer](

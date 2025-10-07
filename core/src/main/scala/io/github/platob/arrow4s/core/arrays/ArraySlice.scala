@@ -11,15 +11,9 @@ trait ArraySlice extends ArrowArrayProxy {
 
   override def length: Int = endIndex - startIndex
 
-  @inline def checkIndexArg(index: Int): Int = {
-    val target = index + startIndex
+  @inline def innerStartIndex(index: Int): Int = index + startIndex
 
-    if (target < startIndex || target >= endIndex) {
-      throw new IndexOutOfBoundsException(s"Index $index out of bounds for slice [$startIndex, $endIndex)")
-    }
-
-    target
-  }
+  @inline def innerEndIndex(index: Int): Int = index + endIndex
 
   override def scalaType: universe.Type = inner.scalaType
 }
@@ -28,17 +22,17 @@ object ArraySlice {
   class Typed[V <: ValueVector, Outer](
     val inner: ArrowArray.Typed[V, Outer],
     val startIndex: Int,
-    val endIndex: Int,
+    val endIndex: Int
   ) extends ArrowArrayProxy.Typed[V, Outer, Outer] with ArraySlice {
     override lazy val children: Seq[Typed[_, _]] = inner.children
       .map(_.slice(start = startIndex, end = endIndex))
 
     override def get(index: Int): Outer = {
-      inner.get(checkIndexArg(index))
+      inner.get(innerStartIndex(index))
     }
 
     override def set(index: Int, value: Outer): this.type = {
-      inner.set(checkIndexArg(index), value)
+      inner.set(innerStartIndex(index), value)
       this
     }
 
@@ -46,10 +40,11 @@ object ArraySlice {
       inner.as(tpe).slice(start = startIndex, end = endIndex)
     }
 
-    override def toArray(start: Int, size: Int): Array[Outer] = {
-      val s = checkIndexArg(start)
+    override def toArray(start: Int, end: Int): Array[Outer] = {
+      val s = innerStartIndex(start)
+      val e = innerStartIndex(end)
 
-      inner.toArray(start = s, size = size)
+      inner.toArray(start = s, end = e)
     }
   }
 }

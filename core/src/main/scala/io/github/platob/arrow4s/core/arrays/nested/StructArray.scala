@@ -12,14 +12,14 @@ import org.apache.arrow.vector.{FieldVector, VectorSchemaRoot}
 import scala.collection.convert.ImplicitConversions.`iterable AsScalaIterable`
 import scala.reflect.runtime.{universe => ru}
 
-class StructArray(
-  val vector: StructVector,
-  val children: Seq[ArrowArray.Typed[_, _]],
+case class StructArray(
+  vector: StructVector,
+  children: Seq[ArrowArray.Typed[_, _]],
 ) extends NestedArray.Typed[StructVector, ArrowRecord] {
   override val scalaType: ru.Type = ru.typeOf[ArrowRecord]
 
-  override def setValueCount(count: Int): StructArray.this.type = {
-    vector.setValueCount(count)
+  override def setValueCount(count: Int): this.type = {
+    super.setValueCount(count)
     children.foreach(_.setValueCount(count))
 
     this
@@ -28,6 +28,17 @@ class StructArray(
   // Accessors
   override def get(index: Int): ArrowRecord = {
     ArrowRecord.view(array = this, index = index)
+  }
+
+  @inline def unsafeGetTuple[T1, T2](index: Int): (T1, T2) = {
+    (
+      childAt(0).unsafeGet[T1](index),
+      childAt(1).unsafeGet[T2](index)
+    )
+  }
+
+  @inline def unsafeGetTuples[T1, T2](start: Int, end: Int): IndexedSeq[(T1, T2)] = {
+    (start until end).map(i => unsafeGetTuple[T1, T2](i))
   }
 
   // Mutators
@@ -44,6 +55,25 @@ class StructArray(
     value.toArray.foreach(v => {
       val child = children(i)
       child.unsafeSet(index, v)
+      i += 1
+    })
+
+    this
+  }
+
+  @inline def unsafeSetTuple[T1, T2](index: Int, value: (T1, T2)): this.type = {
+    vector.setIndexDefined(index) // mark the struct itself non-null
+
+    childAt(0).unsafeSet(index, value._1)
+    childAt(1).unsafeSet(index, value._2)
+
+    this
+  }
+
+  @inline def unsafeSetTuples[T1, T2](start: Int, values: Iterable[(T1, T2)]): this.type = {
+    var i = 0
+    values.foreach(v => {
+      unsafeSetTuple[T1, T2](start + i, v)
       i += 1
     })
 
@@ -84,14 +114,14 @@ class StructArray(
       arr.vector.setIndexDefined(index) // mark the struct itself non-null
 
       // explode the Product with zero iterator churn
-      val values = value.asInstanceOf[Product].productIterator.toSeq
+      val product = value.asInstanceOf[Product]
       var i = 0
 
-      values.foreach(v => {
+      while (i < codec.fields.size) {
         val child = arr.children(i)
-        child.unsafeSet(index, v)
+        child.unsafeSet(index, product.productElement(i))
         i += 1
-      })
+      }
     }
 
     new LogicalArray[StructArray, StructVector, ArrowRecord, AnyRef](

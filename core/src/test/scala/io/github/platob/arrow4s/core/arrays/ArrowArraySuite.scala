@@ -61,6 +61,15 @@ class ArrowArraySuite extends FunSuite {
     assertEquals(array.as[Double], values.map(v => v.map(_.toDouble).getOrElse(null)))
   }
 
+  test("ArrowArray.slice should return sub-array") {
+    val array = ArrowArray(values:_*)
+
+    val slice = array.slice(1, 4)
+
+    assertEquals(slice.length, 3)
+    assertEquals(slice.as[Int], values.slice(1, 4))
+  }
+
   test("ArrowArray.make list array") {
     val listValues: Seq[Seq[Int]] = Seq(
       Seq(1, 2, 3),
@@ -87,7 +96,26 @@ class ArrowArraySuite extends FunSuite {
     assertEquals(tuples, records.map(r => (r.a, r.b, r.c)))
   }
 
-  test("mutations") {
+  test("ArrowArray.make map array") {
+    val mapValues: Seq[Map[String, Int]] = Seq(
+      Map("a" -> 1, "b" -> 2),
+      Map("c" -> 3),
+      Map(),
+      Map("d" -> 4, "e" -> 5, "f" -> 6)
+    )
+    val array = ArrowArray(mapValues:_*)
+
+    assertEquals(array.as[Map[String, Int]], mapValues)
+
+    // Test array map mutations
+//    array.set(2, Map("x" -> 10, "y" -> 20))
+    array.append(Map("z" -> 30))
+
+    val newValues = mapValues :+ Map("z" -> 30)
+    assertEquals(array.as[Map[String, Int]], newValues)
+  }
+
+  test("ArrowArray mutable operations") {
     val array = ArrowArray(values.map(Option(_)):_*)
 
     // Test set

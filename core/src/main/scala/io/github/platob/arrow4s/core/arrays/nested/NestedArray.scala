@@ -22,8 +22,8 @@ object NestedArray {
 
     implicit lazy val classTag: ClassTag[T] = ReflectUtils.classTag[T](scalaType)
 
-    override def toArray(start: Int, size: Int): Array[T] = {
-      (start until (start + size)).map(get).toArray
+    override def toArray(start: Int, end: Int): Array[T] = {
+      (start until end).map(get).toArray
     }
   }
 }

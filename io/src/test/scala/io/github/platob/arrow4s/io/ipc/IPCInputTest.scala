@@ -14,6 +14,6 @@ class IPCInputTest extends FunSuite with IOFSSuite {
 
     assertEquals(batch.length, 5)
     assert(record.isInstanceOf[ArrowRecord])
-    assertEquals(record.getAny(0), 1)
+    assertEquals(record.get(0), 1)
   }
 }

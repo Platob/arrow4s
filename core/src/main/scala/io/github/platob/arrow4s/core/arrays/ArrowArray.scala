@@ -53,9 +53,15 @@ trait ArrowArray extends AutoCloseable {
     this
   }
 
+  // Accessors
+  @inline def unsafeGet[T](index: Int): T
+
+  // Mutators
   @inline def isNull(index: Int): Boolean = vector.isNull(index)
 
   @inline def setNull(index: Int): this.type
+
+  @inline def unsafeSet(index: Int, value: Any): this.type
 
   // AutoCloseable
   def close(): Unit = vector.close()
@@ -80,6 +86,16 @@ object ArrowArray {
       }
 
       index
+    }
+
+    @throws[NoSuchElementException]
+    @inline def childAt(index: Int): ArrowArray.Typed[_, _] = {
+      try {
+        children(index)
+      } catch {
+        case _: IndexOutOfBoundsException =>
+          throw new NoSuchElementException(s"No child at index $index within ${childFields.map(_.getName).mkString("['", "', '", "']")}")
+      }
     }
 
     @throws[NoSuchElementException]
@@ -108,6 +124,10 @@ object ArrowArray {
 
     @inline def get(index: Int): ScalaType
 
+    override def unsafeGet[T](index: Int): T = {
+      get(index).asInstanceOf[T]
+    }
+
     @inline def getOrNull(index: Int): ScalaType = {
       if (isNull(index)) null.asInstanceOf[ScalaType]
       else get(index)
@@ -125,8 +145,26 @@ object ArrowArray {
       set(index, value.asInstanceOf[ScalaType])
     }
 
+    @inline def setValues(index: Int, values: ArrowArray.Typed[_, ScalaType]): this.type = {
+      (0 until values.length).foreach(i => set(index + i, values(i)))
+
+      this
+    }
+
+    @inline def setValues(index: Int, values: Array[ScalaType]): this.type = {
+      values.zipWithIndex.foreach { case (v, i) => set(index + i, v) }
+
+      this
+    }
+
     @inline def setValues(index: Int, values: Iterable[ScalaType]): this.type = {
       values.zipWithIndex.foreach { case (v, i) => set(index + i, v) }
+
+      this
+    }
+
+    @inline def setValues(index: Int, values: Iterator[ScalaType], fetchSize: Int): this.type = {
+      values.grouped(size = fetchSize).map(b => setValues(index, b))
 
       this
     }
@@ -165,7 +203,8 @@ object ArrowArray {
     }
 
     def as(tpe: ru.Type): ArrowArray.Typed[V, _] = {
-      if (this.scalaType =:= tpe || ReflectUtils.implements(tpe, interface = this.scalaType)) {
+      val st = this.scalaType
+      if (this.scalaType =:= tpe) {
         return this
       }
 
@@ -184,9 +223,19 @@ object ArrowArray {
       )
     }
 
+    /**
+     * Convert the entire array to a standard Scala array.
+     * @return scala.Array[ScalaType]
+     */
     def toArray: Array[ScalaType] = toArray(0, length)
 
-    def toArray(start: Int, size: Int): Array[ScalaType]
+    /**
+     * Convert a slice of the array to a standard Scala array.
+     * @param start start index (inclusive)
+     * @param end end index (exclusive)
+     * @return scala.Array[ScalaType]
+     */
+    def toArray(start: Int, end: Int): Array[ScalaType]
 
     def toOptional(tpe: ru.Type): OptionArray.Typed[V, ScalaType] = {
       new OptionArray.Typed[V, ScalaType](
@@ -215,7 +264,7 @@ object ArrowArray {
     make(values)
   }
 
-  private def make[T](values: Seq[T])(implicit tt: ru.TypeTag[T]): ArrowArray.Typed[_, T] = {
+  def make[T](values: Seq[T])(implicit tt: ru.TypeTag[T]): ArrowArray.Typed[_, T] = {
     val field = ArrowField.fromScala[T]
     val allocator = RootAllocatorExtension.INSTANCE
 

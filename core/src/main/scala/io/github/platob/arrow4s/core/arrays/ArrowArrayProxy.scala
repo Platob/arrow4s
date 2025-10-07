@@ -39,6 +39,10 @@ object ArrowArrayProxy {
 
     // Casting
     override def as(tpe: ru.Type): ArrowArray.Typed[V, _] = {
+      if (this.scalaType =:= tpe) {
+        return this
+      }
+
       if (this.inner.scalaType =:= tpe) {
         return this.inner
       }

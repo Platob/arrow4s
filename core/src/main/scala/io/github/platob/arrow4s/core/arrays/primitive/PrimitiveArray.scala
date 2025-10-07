@@ -40,8 +40,8 @@ object PrimitiveArray {
         .asInstanceOf[ArrowArray.Typed[V, _]]
     }
 
-    override def toArray(start: Int, size: Int): Array[T] = {
-      (start until (start + size)).map(get).toArray
+    override def toArray(start: Int, end: Int): Array[T] = {
+      (start until end).map(get).toArray
     }
   }
 }

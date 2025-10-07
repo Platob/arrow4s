@@ -54,11 +54,15 @@ array.as[Option[Double]] == values.map(v => Option(v.toDouble))
 ```scala
 import io.github.platob.arrow4s.core.ArrowArray
 
-case class TestRecord(a: Int, b: String, c: Option[Double])
+case class TestRecord(a: Int, b: String, c: Option[Double], map: Map[String, Int])
 
-val records = (1 to 5).map(i => TestRecord(i, s"str_$i", if (i % 2 == 0) Some(i.toDouble) else None))
+val records = (1 to 5).map(i => TestRecord(
+  i, s"str_$i", if (i % 2 == 0) Some(i.toDouble) else None,
+  map = Map("key1" -> i, "key2" -> (i * 10))
+))
 val array = ArrowArray(records:_*)
-val tuples = array.as[(Int, String, Option[Double])]
+val allColumns = array.as[(Int, String, Option[Double], Map[String, Int])]
+val select = array.as[(Int, String, Option[Double])]
 
 array == records
 ```

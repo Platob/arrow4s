@@ -35,8 +35,8 @@ object OptionArray {
       this
     }
 
-    override def toArray(start: Int, size: Int): Array[Option[Inner]] = {
-      (start until (start + size)).map(get).toArray
+    override def toArray(start: Int, end: Int): Array[Option[Inner]] = {
+      (start until end).map(get).toArray
     }
   }
 }

@@ -1,27 +1,26 @@
 package io.github.platob.arrow4s.core.arrays.nested
 
-import io.github.platob.arrow4s.core.arrays.{ArraySlice, ArrowArray}
-import org.apache.arrow.vector.ValueVector
+import io.github.platob.arrow4s.core.arrays.ArrowArray
 import org.apache.arrow.vector.complex.MapVector
 
 import scala.reflect.runtime.{universe => ru}
 
-class MapArray(val vector: MapVector) extends NestedArray.Typed[MapVector, ArrowArray] {
-  override val scalaType: ru.Type = ru.typeOf[ArrowArray]
+class MapArray[Key, Value](
+  val scalaType: ru.Type,
+  val vector: MapVector,
+  val elements: StructArray[(Key, Value)]
+) extends NestedArray.Typed[MapVector, scala.collection.Map[Key, Value]] {
+  override def childrenArrays: Seq[ArrowArray[_]] = Seq(elements)
 
-  private val elements: ArrowArray = ArrowArray.from(this.vector.getDataVector)
-
-  override def childVector(index: Int): ValueVector = this.vector.getDataVector
-
-  override def isNull(index: Int): Boolean = this.vector.isNull(index)
-
-  override def get(index: Int): ArraySlice = {
+  override def get(index: Int): scala.collection.Map[Key, Value] = {
     val (start, end) = (
       this.vector.getElementStartIndex(index),
       this.vector.getElementEndIndex(index)
     )
 
-    elements.slice(start, end)
+    val items = elements.slice(start, end)
+
+    items.map { case (k, v) => (k, v) }.toMap
   }
 
   override def setNull(index: Int): this.type = {
@@ -29,9 +28,34 @@ class MapArray(val vector: MapVector) extends NestedArray.Typed[MapVector, Arrow
     this
   }
 
-  override def set(index: Int, value: ArrowArray): this.type = {
-    // TODO: implement
+  override def set(index: Int, value: scala.collection.Map[Key, Value]): this.type = {
+    if (value == null) {
+      setNull(index)
+    } else {
+      this.vector.startNewValue(index)
 
-    throw new NotImplementedError("Setting values in MapArray is not implemented yet")
+      value.foreach { case (k, v) =>
+        val elemIndex = elements.cardinality
+        elements.set(elemIndex, (k, v))
+        this.vector.endValue(index, elemIndex + 1)
+      }
+
+      this.vector.endValue(index, value.size)
+    }
+
+    this
+  }
+}
+
+object MapArray {
+  def default(vector: MapVector): MapArray[Any, Any] = {
+    val tpe = ru.typeOf[scala.collection.Map[Any, Any]]
+    val elements = ArrowArray.from(vector.getDataVector).asInstanceOf[StructArray[(Any, Any)]]
+
+    new MapArray[Any, Any](
+      scalaType = tpe,
+      vector = vector,
+      elements = elements
+    )
   }
 }

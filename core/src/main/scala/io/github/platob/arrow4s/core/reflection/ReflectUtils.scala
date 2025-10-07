@@ -10,11 +10,14 @@ object ReflectUtils {
     tpe.baseClasses.exists(_.asType.toType =:= interface)
   }
 
-  def isProduct(tpe: Type): Boolean =
-    tpe.typeSymbol.isClass && tpe.typeSymbol.asClass.isCaseClass
+  def isStruct(tpe: Type): Boolean = tpe <:< typeOf[Product]
 
-  def isSeqLike(tpe: Type): Boolean = {
+  def isTuple(tpe: Type): Boolean =
+    tpe.typeSymbol.fullName.startsWith("scala.Tuple")
+
+  def isCollection(tpe: Type): Boolean = {
     val tc = tpe.typeConstructor
+
     tc =:= typeOf[List[_]].typeConstructor     ||
       tc =:= typeOf[Seq[_]].typeConstructor      ||
       tc =:= typeOf[Vector[_]].typeConstructor   ||
@@ -30,9 +33,6 @@ object ReflectUtils {
 
   def getType[T: TypeTag]: Type =
     typeOf[T]
-
-  def getTypeArgs(tpe: Type): List[Type] =
-    tpe.typeArgs
 
   def typeArgument(tpe: Type, index: Int): Type =
     tpe.typeArgs(index)

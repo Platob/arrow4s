@@ -1,5 +1,6 @@
 package io.github.platob.arrow4s.core.arrays
 
+import io.github.platob.arrow4s.core.arrays.ArrowArrayTest.TestRecord
 import io.github.platob.arrow4s.core.arrays.primitive.IntegralArray.IntArray
 import io.github.platob.arrow4s.core.values.UInt
 import munit.FunSuite
@@ -48,4 +49,31 @@ class ArrowArrayTest extends FunSuite {
       array.as[Option[Double]], values.map(v => Option(v.toDouble))
     )
   }
+
+  test("ArrowArray.as should cast to non-optional") {
+    val values: Seq[Option[Int]] = Seq(Some(1), Some(2), None, Some(4), Some(5))
+    val array = ArrowArray(values:_*)
+
+    assert(array.as[Int].isInstanceOf[IntArray])
+    assertEquals(array.as[Int], values.map(_.getOrElse(null)))
+    assertEquals(array.as[Long], values.map(v => v.map(_.toLong).getOrElse(null)))
+    assertEquals(array.as[Double], values.map(v => v.map(_.toDouble).getOrElse(null)))
+  }
+
+  test("ArrowArray.make case class array") {
+    val records = (1 to 5).map(i => TestRecord(i, s"str_$i", if (i % 2 == 0) Some(i.toDouble) else None))
+    val array = ArrowArray(records:_*)
+    val tuples = array.as[(Int, String, Option[Double])]
+
+    assertEquals(array.child("a").as[Int], records.map(_.a))
+    assertEquals(array.child("b").as[String], records.map(_.b))
+    assertEquals(array.child("c").as[Option[Double]], records.map(_.c))
+    assertEquals(array.get(0), records.head)
+    assertEquals(array, records)
+    assertEquals(tuples, records.map(r => (r.a, r.b, r.c)))
+  }
+}
+
+object ArrowArrayTest {
+  case class TestRecord(a: Int, b: String, c: Option[Double])
 }

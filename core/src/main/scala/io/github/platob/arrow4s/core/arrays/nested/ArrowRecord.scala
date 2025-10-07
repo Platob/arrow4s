@@ -1,51 +1,39 @@
 package io.github.platob.arrow4s.core.arrays.nested
 
-import org.apache.arrow.vector.types.pojo.Field
+import scala.reflect.runtime.{universe => ru}
 
-trait ArrowRecord {
-  override def toString: String = {
-    s"[${this.getValues.mkString(", ")}]"
+trait ArrowRecord extends scala.collection.IndexedSeq[Any] {
+  @inline def apply(index: Int): Any = getAny(index)
+
+  @inline def getAny(index: Int): Any
+
+  @inline def getAs(index: Int, tpe: ru.Type): Any
+
+  @inline def getAs[T](index: Int)(implicit tt: ru.TypeTag[T]): T = {
+    getAs(index, tt.tpe).asInstanceOf[T]
   }
 
-  def getIndices: Range
+  @inline def setAny(index: Int, value: Any): Unit
 
-  def getFieldAt(index: Int): Field
+  @inline def setAs(index: Int, value: Any, tpe: ru.Type): Unit
 
-  def getValues: Seq[_] = {
-    this.getIndices.map(this.getAnyOrNull)
+  @inline def setAs[T](index: Int, value: T)(implicit tt: ru.TypeTag[T]): Unit = {
+    setAs(index, value, tt.tpe)
   }
-
-  def indexOf(name: String): Int = {
-    for (i <- this.getIndices) {
-      val field = getFieldAt(i)
-
-      if (field.getName == name) {
-        return i
-      }
-    }
-
-    for (i <- this.getIndices) {
-      val field = getFieldAt(i)
-
-      if (field.getName.equalsIgnoreCase(name)) {
-        return i
-      }
-    }
-
-    -1
-  }
-
-  @inline def getAnyOrNull(index: Int): Any
 }
 
 object ArrowRecord {
-  @inline def view(array: StructArray, index: Int): ArrowRecord = {
+  @inline def view(array: StructArray[_], index: Int): ArrowRecord = {
     new ArrowRecord {
-      override def getIndices: Range = 0 until array.cardinality
+      override val length: Int = array.cardinality
 
-      override def getFieldAt(i: Int): Field = array.childArray(i).field
+      override def getAny(i: Int): Any = array.child(i).get(index)
 
-      override def getAnyOrNull(i: Int): Any = array.childArray(i).getAnyOrNull(index)
+      override def getAs(i: Int, tpe: ru.Type): Any = array.child(i).as(tpe).get(index)
+
+      override def setAny(i: Int, value: Any): Unit = array.child(i).unsafeSet(index, value)
+
+      override def setAs(i: Int, value: Any, tpe: ru.Type): Unit = array.child(i).as(tpe).unsafeSet(index, value)
     }
   }
 }

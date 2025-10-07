@@ -1,7 +1,7 @@
 package io.github.platob.arrow4s.core.types
 
 import io.github.platob.arrow4s.core.reflection.ReflectUtils
-import io.github.platob.arrow4s.core.values.{UByte, UInt, ULong, UShort}
+import io.github.platob.arrow4s.core.values.{UByte, UInt, ULong}
 import org.apache.arrow.vector.types.FloatingPointPrecision
 import org.apache.arrow.vector.types.pojo.{ArrowType, Field, FieldType}
 
@@ -76,7 +76,7 @@ object ArrowField {
       build(name, new ArrowType.Int(8,  false), nullable = nullable, metadata = metadata, children = Nil)
     else if (tpe =:= typeOf[Short])
       build(name, new ArrowType.Int(16, true), nullable = nullable, metadata = metadata, children = Nil)
-    else if (tpe =:= typeOf[UShort])
+    else if (tpe =:= typeOf[Char])
       build(name, new ArrowType.Int(16, false), nullable = nullable, metadata = metadata, children = Nil)
     else if (tpe =:= typeOf[Int])
       build(name, new ArrowType.Int(32, true), nullable = nullable, metadata = metadata, children = Nil)
@@ -96,10 +96,10 @@ object ArrowField {
         nullable = nullable, metadata = metadata, children = Nil
       )
     } else if (tpe =:= typeOf[String])
-      build(name, new ArrowType.Utf8(), nullable = nullable, metadata = metadata, children = Nil)
+      build(name, ArrowType.Utf8.INSTANCE, nullable = nullable, metadata = metadata, children = Nil)
     else if (tpe =:= typeOf[Array[Byte]])
       build(name, new ArrowType.Binary(), nullable = nullable, metadata = metadata, children = Nil)
-    else if (ReflectUtils.isSeqLike(tpe)) {
+    else if (ReflectUtils.isCollection(tpe)) {
       val child = fromScala(
         tpe.typeArgs.head,
         "item",
@@ -119,7 +119,7 @@ object ArrowField {
       )
 
       val entries  = build(
-        "entries", new ArrowType.Struct(),
+        "entries", ArrowType.Struct.INSTANCE,
         nullable = nullable, metadata = None,
         children = List(keyField, valField)
       )
@@ -144,9 +144,9 @@ object ArrowField {
       val m = metadata.getOrElse(Map.empty) ++
         Map("namespace" -> tpe.typeSymbol.fullName)
 
-      build(name, new ArrowType.Struct(), nullable = nullable, metadata = Some(m), children = kids)
+      build(name, ArrowType.Struct.INSTANCE, nullable = nullable, metadata = Some(m), children = kids)
     }
-    else if (ReflectUtils.isProduct(tpe)) {
+    else if (ReflectUtils.isStruct(tpe)) {
       val ctor   = tpe.decl(termNames.CONSTRUCTOR).asMethod
       val params = ctor.paramLists.flatten
       val kids = params.map { p =>
@@ -160,7 +160,7 @@ object ArrowField {
       val m = metadata.getOrElse(Map.empty) ++
         Map("namespace" -> tpe.typeSymbol.fullName)
 
-      build(name, new ArrowType.Struct(), nullable = nullable, metadata = Some(m), children = kids)
+      build(name, ArrowType.Struct.INSTANCE, nullable = nullable, metadata = Some(m), children = kids)
     }
     else {
       throw new IllegalArgumentException(s"Unsupported Scala type for Arrow conversion: $tpe")

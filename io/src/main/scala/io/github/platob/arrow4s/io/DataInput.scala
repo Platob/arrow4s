@@ -1,8 +1,9 @@
 package io.github.platob.arrow4s.io
 
-import io.github.platob.arrow4s.core.arrays.nested.StructArray
+import io.github.platob.arrow4s.core.arrays.nested.{ArrowRecord, StructArray}
 import org.apache.arrow.dataset.file.FileFormat
 import org.apache.arrow.dataset.scanner.{ScanOptions, Scanner}
+import org.apache.arrow.memory.RootAllocator
 import org.apache.arrow.vector.VectorSchemaRoot
 
 trait DataInput {
@@ -12,9 +13,9 @@ trait DataInput {
 
   def javaBatches(closeAtEnd: Boolean): Iterator[VectorSchemaRoot]
 
-  def batches(closeAtEnd: Boolean): Iterator[StructArray] = {
+  def batches(closeAtEnd: Boolean): Iterator[StructArray[ArrowRecord]] = {
     this.javaBatches(closeAtEnd = closeAtEnd).map(r => {
-      StructArray.from(r)
+      StructArray.default(root = r)
     })
   }
 }

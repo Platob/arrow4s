@@ -37,9 +37,10 @@ Group is pre-set to `io.github.platob`. Update `organization` if needed.
 ## Example usage
 
 ### In memory
+
+### Primitive arrays
 ```scala
 import io.github.platob.arrow4s.core.ArrowArray
-import io.github.platob.arrow4s.core.cast.NumericOpsPlus._
 
 // Raw build
 val values: Seq[Int] = Seq(1, 2, 3, 4, 5)
@@ -47,6 +48,19 @@ val array = ArrowArray(values:_*)
 
 array == values
 array.as[Option[Double]] == values.map(v => Option(v.toDouble))
+```
+
+### Nested arrays
+```scala
+import io.github.platob.arrow4s.core.ArrowArray
+
+case class TestRecord(a: Int, b: String, c: Option[Double])
+
+val records = (1 to 5).map(i => TestRecord(i, s"str_$i", if (i % 2 == 0) Some(i.toDouble) else None))
+val array = ArrowArray(records:_*)
+val tuples = array.as[(Int, String, Option[Double])]
+
+array == records
 ```
 
 ### IPC

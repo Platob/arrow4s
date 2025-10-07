@@ -1,5 +1,6 @@
 package io.github.platob.arrow4s.io.ipc
 
+import io.github.platob.arrow4s.core.memory.RootAllocatorExtension
 import io.github.platob.arrow4s.io.DataInput
 import org.apache.arrow.dataset.file.{FileFormat, FileSystemDatasetFactory}
 import org.apache.arrow.dataset.jni.NativeMemoryPool
@@ -18,7 +19,7 @@ object IPCInput {
   def file(filePath: String): File = file(
     filePath,
     new ScanOptions(64 * 1024),
-    new RootAllocator(),
+    RootAllocatorExtension.INSTANCE,
     NativeMemoryPool.getDefault
   )
 

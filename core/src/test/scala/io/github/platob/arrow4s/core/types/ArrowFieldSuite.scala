@@ -38,7 +38,7 @@ class ArrowFieldSuite extends FunSuite {
       case other      => fail(s"Expected exactly one child, got: $other")
     }
     assertEquals(item.getName, "item")
-    assertEquals(item.getType, new ArrowType.Utf8())
+    assertEquals(item.getType, ArrowType.Utf8.INSTANCE)
     // element nullability expectation per builder behavior
     assertEquals(item.isNullable, false)
   }
@@ -53,13 +53,13 @@ class ArrowFieldSuite extends FunSuite {
       case other    => fail(s"Expected single 'entries' child, got: $other")
     }
     assertEquals(entries.getName, "entries")
-    assertEquals(entries.getType, new ArrowType.Struct())
+    assertEquals(entries.getType, ArrowType.Struct.INSTANCE)
     assertEquals(entries.isNullable, false)
 
     val List(k, v) = children(entries)
     assertEquals(k.getName, "key")
     assertEquals(k.isNullable, false)
-    assertEquals(k.getType, new ArrowType.Utf8())
+    assertEquals(k.getType, ArrowType.Utf8.INSTANCE)
 
     assertEquals(v.getName, "value")
     assertEquals(v.isNullable, true)
@@ -68,7 +68,7 @@ class ArrowFieldSuite extends FunSuite {
 
   test("build a Struct for tuples with numbered children") {
     val f = ArrowField.fromScala[(Int, String)](name = "pair")
-    assertEquals(f.getType, new ArrowType.Struct())
+    assertEquals(f.getType, ArrowType.Struct.INSTANCE)
     assertEquals(f.isNullable, false)
 
     val List(_1, _2) = children(f)
@@ -77,17 +77,17 @@ class ArrowFieldSuite extends FunSuite {
     assertEquals(_1.isNullable, false)
 
     assertEquals(_2.getName, "_2")
-    assertEquals(_2.getType, new ArrowType.Utf8())
+    assertEquals(_2.getType, ArrowType.Utf8.INSTANCE)
     assertEquals(_2.isNullable, false)
   }
 
   test("build a Struct for case classes with parameter names and option nullability") {
     val f = ArrowField.fromScala[Person]
-    assertEquals(f.getType, new ArrowType.Struct())
+    assertEquals(f.getType, ArrowType.Struct.INSTANCE)
     val List(nameF, ageF) = children(f)
 
     assertEquals(nameF.getName, "name")
-    assertEquals(nameF.getType, new ArrowType.Utf8())
+    assertEquals(nameF.getType, ArrowType.Utf8.INSTANCE)
     assertEquals(nameF.isNullable, false)
 
     assertEquals(ageF.getName, "age")

@@ -2,10 +2,9 @@ package io.github.platob.arrow4s.core.arrays.nested
 
 import io.github.platob.arrow4s.core.arrays.ArrowArray
 import org.apache.arrow.vector.ValueVector
+import org.apache.arrow.vector.types.pojo.Field
 
-import scala.reflect.runtime.{universe => ru}
-
-trait NestedArray extends ArrowArray {
+trait NestedArray[T] extends ArrowArray[T] {
   override def isPrimitive: Boolean = false
 
   override def isNested: Boolean = true
@@ -14,18 +13,30 @@ trait NestedArray extends ArrowArray {
 
   override def isLogical: Boolean = false
 
-  private lazy val childrenArrays: Seq[ArrowArray] = (0 until this.cardinality).map(i => {
-    val v = this.childVector(i)
+  def childrenArrays: Seq[ArrowArray[_]]
 
-    ArrowArray.from(v)
-  })
+  def childFields: Seq[Field] = childrenArrays.map(_.field)
 
-  @inline override def childArray(index: Int): ArrowArray = childrenArrays(index)
+  def child(index: Int): ArrowArray[_] = childrenArrays(index)
+
+  def child(name: String): ArrowArray[_] = {
+    var index = childFields.indexWhere(_.getName == name)
+
+    if (index == -1) {
+      // Try case-insensitive match
+      index = childFields.indexWhere(_.getName.equalsIgnoreCase(name))
+
+      if (index == -1)
+        throw new NoSuchElementException(s"'$name' not found in fields: ${childFields.map(_.getName).mkString("'", "', '", "'")}")
+    }
+
+    childrenArrays(index)
+  }
 }
 
 object NestedArray {
-  abstract class Typed[V <: ValueVector, T : ru.TypeTag]
-    extends ArrowArray.Typed[V, T] with NestedArray {
+  abstract class Typed[V <: ValueVector, T]
+    extends ArrowArray.Typed[V, T] with NestedArray[T] {
 
   }
 }

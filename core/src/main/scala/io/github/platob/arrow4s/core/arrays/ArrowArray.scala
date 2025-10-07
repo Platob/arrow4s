@@ -3,26 +3,20 @@ package arrays
 
 import io.github.platob.arrow4s.core.arrays.nested.StructArray
 import io.github.platob.arrow4s.core.arrays.primitive.{BinaryArray, FloatingPointArray, IntegralArray}
+import io.github.platob.arrow4s.core.memory.RootAllocatorExtension
 import io.github.platob.arrow4s.core.reflection.ReflectUtils
 import io.github.platob.arrow4s.core.types.ArrowField
 import org.apache.arrow.memory.{BufferAllocator, RootAllocator}
 import org.apache.arrow.vector._
 import org.apache.arrow.vector.complex.{ListVector, MapVector, StructVector}
-import org.apache.arrow.vector.types.{DateUnit, FloatingPointPrecision, TimeUnit}
 import org.apache.arrow.vector.types.pojo.ArrowType.ArrowTypeID
 import org.apache.arrow.vector.types.pojo.{ArrowType, Field}
+import org.apache.arrow.vector.types.{DateUnit, FloatingPointPrecision, TimeUnit}
 
 import scala.reflect.runtime.{universe => ru}
 
-trait ArrowArray extends AutoCloseable {
-  override def toString: String = {
-    val limit: Int = 10
-    val anyValues = this.anyOrNullValues.take(limit).mkString(", ")
-    val suffix = if (length > limit) ", ..." else ""
-
-    s"[$anyValues$suffix]"
-  }
-
+trait ArrowArray[ScalaType]
+  extends AutoCloseable with scala.collection.immutable.IndexedSeq[ScalaType] {
   // Properties
   @inline def vector: ValueVector
 
@@ -40,23 +34,17 @@ trait ArrowArray extends AutoCloseable {
 
   @inline def length: Int = vector.getValueCount
 
-  @inline def cardinality: Int = this.field.getChildren.size()
-
-  @inline def indices: Range = 0 until length
-
-  @inline def childVector(index: Int): ValueVector
-
-  @inline def childArray(index: Int): ArrowArray = {
-    val v = childVector(index)
-
-    ArrowArray.from(v)
-  }
+  val cardinality: Int = this.field.getChildren.size()
 
   def scalaType: ru.Type
 
+  def child(index: Int): ArrowArray[_]
+
+  def child(name: String): ArrowArray[_]
+
   // Memory management
-  def ensureCapacity(capacity: Int): this.type = {
-    if (capacity > vector.getValueCapacity) {
+  private def ensureIndex(index: Int): this.type = {
+    if (index >= vector.getValueCapacity) {
       vector.reAlloc()
     }
 
@@ -69,45 +57,49 @@ trait ArrowArray extends AutoCloseable {
     this
   }
 
+  @inline def isNull(index: Int): Boolean = vector.isNull(index)
+
   // Accessors
-  private def anyOrNullValues: IndexedSeq[Any] = indices.map(getAnyOrNull)
+  @inline def apply(index: Int): ScalaType = getOrNull(index)
 
-  @inline def isNull(index: Int): Boolean
+  @inline def get(index: Int): ScalaType
 
-  @inline def getAny(index: Int): Any
-
-  @inline def getAnyOrNull(index: Int): Any = {
-    if (vector.isNull(index)) null
-    else getAny(index)
-  }
-
-  @inline def getAnyOption(index: Int): Option[Any] = {
-    if (vector.isNull(index)) None
-    else Some(getAny(index))
+  @inline def getOrNull(index: Int): ScalaType = {
+    if (isNull(index)) null.asInstanceOf[ScalaType]
+    else get(index)
   }
 
   // Mutation
-  @inline def setAny(index: Int, value: Any): this.type
+  @inline def setNull(index: Int): this.type
 
-  @inline def setAnyOrNull(index: Int, value: Any): this.type = {
+  @inline def set(index: Int, value: ScalaType): this.type
+
+  @inline def setOrNull(index: Int, value: ScalaType): this.type = {
     if (value == null) setNull(index)
-    else setAny(index, value)
+    else set(index, value)
+  }
+
+  @inline def unsafeSet(index: Int, value: Any): this.type = {
+    set(index, value.asInstanceOf[ScalaType])
+  }
+
+  @inline def setValues(index: Int, values: Iterable[ScalaType]): this.type = {
+    val endIndex = index + values.size
+    ensureIndex(endIndex)
+
+    values.zipWithIndex.foreach { case (v, i) => set(index + i, v) }
 
     this
   }
 
-  @inline def setNull(index: Int): this.type
-
-  @inline def appendAny(value: Any): this.type
-
   // Cast
-  def as[C : ru.TypeTag]: ArrowArray.Typed[_, C] = {
+  def as[C : ru.TypeTag]: ArrowArray[C] = {
     val casted = as(ru.typeOf[C].dealias)
 
-    casted.asInstanceOf[ArrowArray.Typed[_, C]]
+    casted.asInstanceOf[ArrowArray[C]]
   }
 
-  def as(tpe: ru.Type): ArrowArray = {
+  def as(tpe: ru.Type): ArrowArray[_] = {
     if (this.scalaType =:= tpe || ReflectUtils.implements(tpe, interface = this.scalaType)) {
       return this
     }
@@ -121,93 +113,43 @@ trait ArrowArray extends AutoCloseable {
     this.innerAs(tpe)
   }
 
-  def innerAs(tpe: ru.Type): ArrowArray = {
+  def innerAs(tpe: ru.Type): ArrowArray[_] = {
     throw new IllegalArgumentException(
       s"Cannot cast array from $scalaType to $tpe"
     )
   }
 
-  def toOptional(scalaType: ru.Type): OptionArray[_, _]
+  def toOptional(scalaType: ru.Type): OptionArray[ScalaType] = {
+    val arr = this
 
-  def slice(start: Int, end: Int): ArraySlice
+    new OptionArray[ScalaType] {
+      override val scalaType: ru.Type = scalaType
+
+      override val inner: ArrowArray[ScalaType] = arr
+    }
+  }
+
+  override def slice(start: Int, end: Int): ArraySlice[ScalaType] = {
+    val arr = this
+
+    new ArraySlice[ScalaType] {
+      override def startIndex: Int = start
+
+      override def endIndex: Int = end
+
+      override def inner: ArrowArray[ScalaType] = arr
+
+      override val scalaType: ru.Type = arr.scalaType
+    }
+  }
 
   // AutoCloseable
   def close(): Unit = vector.close()
 }
 
 object ArrowArray {
-  trait Typed[V <: ValueVector, ScalaType] extends ArrowArray with IndexedSeq[ScalaType] {
+  trait Typed[V <: ValueVector, ScalaType] extends ArrowArray[ScalaType] {
     def vector: V
-
-    def scalaType: ru.Type
-
-    override def indices: Range = 0 until length
-
-    // Accessors
-    @inline def apply(index: Int): ScalaType = getOrNull(index)
-
-    @inline def get(index: Int): ScalaType
-
-    override def getAny(index: Int): Any = get(index)
-
-    @inline def getOrNull(index: Int): ScalaType = {
-      if (isNull(index)) null.asInstanceOf[ScalaType]
-      else get(index)
-    }
-
-    override def getAnyOrNull(index: Int): Any = getOrNull(index)
-
-    @inline def getOption(index: Int): Option[ScalaType] = {
-      if (isNull(index)) None
-      else Some(get(index))
-    }
-
-    override def getAnyOption(index: Int): Option[Any] = getOption(index)
-
-    // Mutators
-    @inline def set(index: Int, value: ScalaType): this.type
-
-    override def setAny(index: Int, value: Any): this.type = {
-      set(index, value.asInstanceOf[ScalaType])
-    }
-
-    @inline def setOrNull(index: Int, value: ScalaType): this.type = {
-      if (value == null) setNull(index)
-      else set(index, value)
-
-      this
-    }
-
-    @inline def setMany(startIndex: Int, values: Seq[ScalaType]): this.type = {
-      values.zipWithIndex.foreach { case (v, i) => setOrNull(startIndex + i, v) }
-
-      this
-    }
-
-    @inline def append(value: ScalaType): this.type = {
-      val index = length
-
-      ensureCapacity(index + 1)
-      set(index, value)
-      setValueCount(index + 1)
-
-      this
-    }
-
-    @inline def appendMany(values: Seq[ScalaType]): this.type = {
-      val startIndex = length
-      val newLength = startIndex + values.length
-
-      ensureCapacity(newLength)
-      setMany(startIndex, values)
-      setValueCount(newLength)
-
-      this
-    }
-
-    override def appendAny(value: Any): this.type = {
-      append(value.asInstanceOf[ScalaType])
-    }
 
     // Cast
     override def as[C : ru.TypeTag]: ArrowArray.Typed[V, C] = {
@@ -216,8 +158,8 @@ object ArrowArray {
       casted.asInstanceOf[ArrowArray.Typed[V, C]]
     }
 
-    override def toOptional(scalaType: ru.Type): OptionArray[V, ScalaType] = {
-      new OptionArray[V, ScalaType](
+    override def toOptional(scalaType: ru.Type): OptionArray.Typed[V, ScalaType] = {
+      new OptionArray.Typed[V, ScalaType](
         scalaType = scalaType,
         inner = this
       )
@@ -233,20 +175,20 @@ object ArrowArray {
   }
 
   // Factory methods
-  def apply[T : ru.TypeTag](values: T*): ArrowArray.Typed[_, T] = make(values)
+  def apply[T : ru.TypeTag](values: T*): ArrowArray[T] = make(values)
 
-  def make[T : ru.TypeTag](values: Seq[T]): ArrowArray.Typed[_, T] = {
+  private def make[T : ru.TypeTag](values: Seq[T]): ArrowArray[T] = {
     val field = ArrowField.fromScala[T]
-    val allocator = new RootAllocator()
+    val allocator = RootAllocatorExtension.INSTANCE
     val vector = emptyVector(field, allocator, values.size)
     val array = from(vector).as[T]
 
-    array.setMany(0, values)
+    array.setValues(0, values)
 
     array
   }
 
-  def from(vector: ValueVector): ArrowArray = {
+  def from(vector: ValueVector): ArrowArray[_] = {
     val field = vector.getField
     val dtype = field.getType
 
@@ -307,11 +249,11 @@ object ArrowArray {
       case ArrowTypeID.Date =>
         new IntegralArray.DateDayArray(vector.asInstanceOf[DateDayVector])
       case ArrowTypeID.Struct =>
-        StructArray.from(vector.asInstanceOf[StructVector])
+        StructArray.default(vector.asInstanceOf[StructVector])
       case ArrowTypeID.List =>
-        new nested.ListArray(vector.asInstanceOf[ListVector])
+        nested.ListArray.default(vector.asInstanceOf[ListVector])
       case ArrowTypeID.Map =>
-        new nested.MapArray(vector.asInstanceOf[MapVector])
+        nested.MapArray.default(vector.asInstanceOf[MapVector])
       case _ =>
         throw new IllegalArgumentException(s"Unsupported data type: $dtype")
     }
@@ -324,17 +266,9 @@ object ArrowArray {
   ): FieldVector = {
     val vector = field.getType.getTypeID match {
       case ArrowTypeID.Binary =>
-        val v = new VarBinaryVector(field, allocator)
-
-        v.setInitialCapacity(capacity)
-
-        v
+        new VarBinaryVector(field, allocator)
       case ArrowTypeID.Utf8 =>
-        val v = new VarCharVector(field, allocator)
-
-        v.setInitialCapacity(capacity)
-
-        v
+        new VarCharVector(field, allocator)
       case ArrowTypeID.Int =>
         emptyIntegralVector(
           field = field,
@@ -344,98 +278,56 @@ object ArrowArray {
         )
       case ArrowTypeID.FloatingPoint =>
         val arrowType = field.getType.asInstanceOf[ArrowType.FloatingPoint]
-        val v = arrowType.getPrecision match {
+        arrowType.getPrecision match {
           case FloatingPointPrecision.SINGLE =>
-            val v = new Float4Vector(field, allocator)
-
-            v.setInitialCapacity(capacity)
-
-            v
+            new Float4Vector(field, allocator)
           case FloatingPointPrecision.DOUBLE =>
-            val v = new Float8Vector(field, allocator)
-
-            v.setInitialCapacity(capacity)
-
-            v
+            new Float8Vector(field, allocator)
           case _ =>
             throw new IllegalArgumentException(s"Unsupported floating point type: $arrowType")
         }
-
-        v
       case ArrowTypeID.Bool =>
-        val v = new BitVector(field, allocator)
-
-        v.setInitialCapacity(capacity)
-
-        v
+        new BitVector(field, allocator)
       case ArrowTypeID.Decimal =>
         val arrowType = field.getType.asInstanceOf[ArrowType.Decimal]
-        val v = arrowType.getBitWidth match {
+
+        arrowType.getBitWidth match {
           case 128 =>
-            val v = new DecimalVector(field, allocator)
-
-            v.setInitialCapacity(capacity)
-
-            v
+            new DecimalVector(field, allocator)
           case 256 =>
-            val v = new Decimal256Vector(field, allocator)
-
-            v.setInitialCapacity(capacity)
-
-            v
+            new Decimal256Vector(field, allocator)
           case _ =>
             throw new IllegalArgumentException(s"Unsupported decimal type: $arrowType")
         }
-
-        v
       case ArrowTypeID.Timestamp =>
         val arrowType = field.getType.asInstanceOf[ArrowType.Timestamp]
 
-        val v = arrowType.getUnit match {
+        arrowType.getUnit match {
           case TimeUnit.SECOND => new TimeStampSecVector(field, allocator)
           case TimeUnit.MILLISECOND => new TimeStampMilliVector(field, allocator)
           case TimeUnit.MICROSECOND => new TimeStampMicroVector(field, allocator)
           case TimeUnit.NANOSECOND => new TimeStampNanoVector(field, allocator)
           case _ => throw new IllegalArgumentException(s"Unsupported time unit: ${arrowType.getUnit}")
         }
-
-        v.setInitialCapacity(capacity)
-
-        v
       case ArrowTypeID.Date =>
         val arrowType = field.getType.asInstanceOf[ArrowType.Date]
 
-        val v = arrowType.getUnit match {
+        arrowType.getUnit match {
           case DateUnit.DAY => new DateDayVector(field, allocator)
           case DateUnit.MILLISECOND => new DateMilliVector(field, allocator)
           case _ => throw new IllegalArgumentException(s"Unsupported time unit: ${arrowType.getUnit}")
         }
-
-        v.setInitialCapacity(capacity)
-
-        v
       case ArrowTypeID.Struct =>
-        val v = new StructVector(field, allocator, null)
-
-        v.setInitialCapacity(capacity)
-
-        v
+        new StructVector(field, allocator, null)
       case ArrowTypeID.List =>
-        val v = new ListVector(field, allocator, null)
-
-        v.setInitialCapacity(capacity)
-
-        v
+        new ListVector(field, allocator, null)
       case ArrowTypeID.Map =>
-        val v = new MapVector(field, allocator, null)
-
-        v.setInitialCapacity(capacity)
-
-        v
+        new MapVector(field, allocator, null)
       case _ =>
         throw new IllegalArgumentException(s"Unsupported data type: ${field.getType}")
     }
 
+    vector.setInitialCapacity(capacity)
     vector.setValueCount(capacity)
 
     vector

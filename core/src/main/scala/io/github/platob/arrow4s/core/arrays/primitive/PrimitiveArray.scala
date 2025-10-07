@@ -1,9 +1,12 @@
 package io.github.platob.arrow4s.core.arrays.primitive
 
-import io.github.platob.arrow4s.core.arrays.ArrowArray
+import io.github.platob.arrow4s.core.arrays.{ArrowArray, LogicalArray}
+import io.github.platob.arrow4s.core.entensions.TypeExtension
 import org.apache.arrow.vector.{FieldVector, ValueVector}
 
-trait PrimitiveArray extends ArrowArray {
+import scala.reflect.runtime.{universe => ru}
+
+abstract class PrimitiveArray[ScalaType : TypeExtension] extends ArrowArray[ScalaType] {
   override def isPrimitive: Boolean = true
 
   override def isNested: Boolean = false
@@ -12,21 +15,30 @@ trait PrimitiveArray extends ArrowArray {
 
   override def isLogical: Boolean = false
 
-  override def isNull(index: Int): Boolean = vector.isNull(index)
+  val typeExtension: TypeExtension[ScalaType] = implicitly[TypeExtension[ScalaType]]
 
-  override def childVector(index: Int): ValueVector = {
-    throw new IllegalArgumentException(s"$this is a primitive array and has no children")
-  }
+  override def scalaType: ru.Type = typeExtension.tpe
+
+  override def child(index: Int): ArrowArray[_] =
+    throw new UnsupportedOperationException("Primitive arrays do not have children")
+
+  override def child(name: String): ArrowArray[_] =
+    throw new UnsupportedOperationException("Primitive arrays do not have children")
 }
 
 object PrimitiveArray {
-  abstract class Typed[V <: FieldVector, T]
-    extends ArrowArray.Typed[V, T] with PrimitiveArray {
+  abstract class Typed[V <: FieldVector, T : TypeExtension]
+    extends PrimitiveArray[T] with ArrowArray.Typed[V, T] {
 
     override def setNull(index: Int): this.type = {
       vector.setNull(index)
 
       this
+    }
+
+    // Cast
+    override def innerAs(tpe: ru.Type): ArrowArray[_] = {
+      LogicalArray.convertPrimitive[V, T](arr = this, tpe = tpe)
     }
   }
 }

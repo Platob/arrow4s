@@ -26,6 +26,8 @@ final class UByte private (private val b: Byte) extends AnyVal {
 object UByte {
   val MinValue: UByte = new UByte(0)
   val MaxValue: UByte = new UByte(-1) // 0xFF
+  val One: UByte = new UByte(1)
+  val Zero: UByte = MinValue
 
   @inline def apply(str: String): UByte = str.toInt match {
     case i if 0 <= i && i <= 255 => new UByte(i.toByte)
@@ -36,10 +38,9 @@ object UByte {
     if (0 <= i && i <= 255) new UByte(i.toByte)
     else throw new IllegalArgumentException(s"UByte out of range: $i")
 
-  @inline def trunc(byte: Byte): UByte = new UByte(byte)
+  @inline def unsafe(byte: Byte): UByte = new UByte(byte)
+  @inline def trunc(byte: Byte): UByte = trunc(byte & 0xFF)
   @inline def trunc(short: Short): UByte = new UByte((short & 0xFF).toByte)
   @inline def trunc(i: Int): UByte = new UByte((i & 0xFF).toByte)
   @inline def trunc(i: Long): UByte = new UByte((i & 0xFF).toByte)
-  @inline def trunc(f: Float): UByte = new UByte((f.toInt & 0xFF).toByte)
-  @inline def trunc(d: Double): UByte = new UByte((d.toInt & 0xFF).toByte)
 }

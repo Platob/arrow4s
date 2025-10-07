@@ -20,8 +20,11 @@ final class ULong private (private val l: Long) extends AnyVal {
   }
   @inline def toBoolean: Boolean = l != 0L
   @inline def toByte: Byte = l.toByte
+  @inline def toUByte: UByte = UByte.trunc(l)
   @inline def toShort: Short = l.toShort
+  @inline def toChar: Char = (l & 0xFFFF).toChar
   @inline def toInt: Int = l.toInt
+  @inline def toUInt: UInt = UInt.trunc(l)
   @inline def toLong: Long = l
   @inline def toFloat: Float = (l & 0xFFFFFFFFFFFFFFFFL).toFloat
   @inline def toDouble: Double = (l & 0xFFFFFFFFFFFFFFFFL).toDouble
@@ -53,11 +56,11 @@ object ULong {
 
   private val Mask = new java.math.BigInteger("FFFFFFFFFFFFFFFF", 16)
 
-  @inline def trunc(str: String): ULong = trunc(new BigInteger(str))
+  @inline def unsafe(l: Long): ULong = new ULong(l)
   @inline def trunc(byte: Byte): ULong = new ULong(byte & 0xFFL)
   @inline def trunc(short: Short): ULong = new ULong(short & 0xFFFFL)
   @inline def trunc(i: Int): ULong = new ULong(i & 0xFFFFFFFFFFFFFFFFL)
-  @inline def trunc(l: Long): ULong = new ULong(l)
+  @inline def trunc(l: Long): ULong = new ULong(l & 0xFFFFFFFFFFFFFFFFL)
   @inline def trunc(bi: BigInt): ULong = trunc(bi.bigInteger)
   @inline def trunc(bi: BigInteger): ULong = new ULong(bi.and(Mask).longValue)
 }

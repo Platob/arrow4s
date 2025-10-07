@@ -1,6 +1,8 @@
 package io.github.platob.arrow4s.core.reflection
 
+import scala.reflect.ClassTag
 import scala.reflect.runtime.universe.{Type, TypeTag, typeOf}
+import scala.reflect.runtime.{universe => ru}
 
 object ReflectUtils {
   def isOption(tpe: Type): Boolean =
@@ -10,29 +12,24 @@ object ReflectUtils {
     tpe.baseClasses.exists(_.asType.toType =:= interface)
   }
 
-  def isStruct(tpe: Type): Boolean = tpe <:< typeOf[Product]
+  private def implementsConstructor(tpe: Type, interface: Type): Boolean = {
+    val ctr = interface.typeConstructor
+    tpe.baseClasses.exists(_.asType.toType.typeConstructor =:= ctr)
+  }
 
   def isTuple(tpe: Type): Boolean =
     tpe.typeSymbol.fullName.startsWith("scala.Tuple")
 
-  def isCollection(tpe: Type): Boolean = {
-    val tc = tpe.typeConstructor
-
-    tc =:= typeOf[List[_]].typeConstructor     ||
-      tc =:= typeOf[Seq[_]].typeConstructor      ||
-      tc =:= typeOf[Vector[_]].typeConstructor   ||
-      tc =:= typeOf[Array[_]].typeConstructor    ||
-      tc =:= typeOf[Iterable[_]].typeConstructor
+  def isIterable(tpe: Type): Boolean = {
+    implementsConstructor(tpe, typeOf[Iterable[_]]) ||
+      implementsConstructor(tpe, typeOf[Array[_]])
   }
 
   def isMap(tpe: Type): Boolean =
-    tpe.typeConstructor =:= typeOf[scala.collection.Map[_, _]].typeConstructor
+    implementsConstructor(tpe, typeOf[collection.Map[_, _]])
 
   def isSortedMap(tpe: Type): Boolean =
-    tpe.typeConstructor =:= typeOf[collection.immutable.SortedMap[_, _]].typeConstructor
-
-  def getType[T: TypeTag]: Type =
-    typeOf[T]
+    implementsConstructor(tpe, typeOf[collection.SortedMap[_, _]])
 
   def typeArgument(tpe: Type, index: Int): Type =
     tpe.typeArgs(index)
@@ -49,5 +46,11 @@ object ReflectUtils {
     val base = tpe.typeSymbol.name.decodedName.toString
 
     s"${base.head.toLower}${base.tail}" // make first letter lowercase: Base
+  }
+
+  def classTag[T](tpe: Type): ClassTag[T] = {
+    implicit val m: ru.Mirror = ru.runtimeMirror(getClass.getClassLoader)
+
+    ClassTag(m.runtimeClass(tpe.erasure)).asInstanceOf[ClassTag[T]]
   }
 }

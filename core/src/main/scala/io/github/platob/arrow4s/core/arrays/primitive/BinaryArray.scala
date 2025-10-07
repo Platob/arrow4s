@@ -1,11 +1,13 @@
-package io.github.platob.arrow4s.core.arrays.primitive
+package io.github.platob.arrow4s.core
+package arrays.primitive
 
+import extensions.TypeExtension
 import org.apache.arrow.vector.{FieldVector, VarBinaryVector, VarCharVector}
 
 import java.nio.charset.Charset
 import scala.reflect.runtime.{universe => ru}
 
-trait BinaryArray[V <: FieldVector, T] extends PrimitiveArray.Typed[V, T] {
+abstract class BinaryArray[V <: FieldVector, T : TypeExtension] extends PrimitiveArray.Typed[V, T] {
 
 }
 

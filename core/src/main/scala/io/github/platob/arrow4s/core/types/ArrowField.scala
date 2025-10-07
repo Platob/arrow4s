@@ -1,19 +1,20 @@
 package io.github.platob.arrow4s.core.types
 
+import io.github.platob.arrow4s.core.extensions.FastCtorCache
 import io.github.platob.arrow4s.core.reflection.ReflectUtils
 import io.github.platob.arrow4s.core.values.{UByte, UInt, ULong}
 import org.apache.arrow.vector.types.FloatingPointPrecision
 import org.apache.arrow.vector.types.pojo.{ArrowType, Field, FieldType}
 
 import scala.jdk.CollectionConverters.{MapHasAsJava, SeqHasAsJava}
-import scala.reflect.runtime.universe.{Type, TypeTag, termNames, typeOf}
+import scala.reflect.runtime.universe.{Type, TypeTag, typeOf}
 
 object ArrowField {
   def build(
     name: String,
     at: ArrowType,
     nullable: Boolean,
-    children: List[Field],
+    children: Seq[Field],
     metadata: Option[Map[String, String]]
   ): Field = {
     val fieldType = new FieldType(nullable, at, null, metadata.map(_.asJava).orNull)
@@ -21,19 +22,19 @@ object ArrowField {
     new Field(name, fieldType, children.asJava)
   }
 
-  def fromScala[T : TypeTag]: Field =
+  def fromScala[T](implicit tt: TypeTag[T]): Field =
     fromScala[T](name = ReflectUtils.defaultName(typeOf[T]))
 
-  def fromScala[T : TypeTag](name: String): Field =
+  def fromScala[T](name: String)(implicit tt: TypeTag[T]): Field =
     fromScala[T](
       name = name,
       metadata = None,
     )
 
-  def fromScala[T : TypeTag](
+  def fromScala[T](
     name: String,
     metadata: Option[Map[String, String]],
-  ): Field = {
+  )(implicit tt: TypeTag[T]): Field = {
     val tpe = typeOf[T].dealias
 
     fromScala(
@@ -60,13 +61,11 @@ object ArrowField {
   }
 
   def fromScala(
-    tpe0: Type,
+    tpe: Type,
     name: String,
     nullable: Boolean,
     metadata: Option[Map[String, String]],
   ): Field = {
-    val tpe = tpe0.dealias
-
     if (ReflectUtils.isOption(tpe))
       return fromScala(tpe.typeArgs.head, name, nullable = true, metadata)
 
@@ -87,7 +86,7 @@ object ArrowField {
     else if (tpe =:= typeOf[ULong])
       build(name, new ArrowType.Int(64, false), nullable = nullable, metadata = metadata, children = Nil)
     else if (tpe =:= typeOf[Boolean])
-      build(name, new ArrowType.Bool(), nullable = nullable, metadata = metadata, children = Nil)
+      build(name, ArrowType.Bool.INSTANCE, nullable = nullable, metadata = metadata, children = Nil)
     else if (tpe =:= typeOf[Float])
       build(name, new ArrowType.FloatingPoint(FloatingPointPrecision.SINGLE), nullable = nullable, metadata = metadata, children = Nil)
     else if (tpe =:= typeOf[Double]) {
@@ -98,16 +97,7 @@ object ArrowField {
     } else if (tpe =:= typeOf[String])
       build(name, ArrowType.Utf8.INSTANCE, nullable = nullable, metadata = metadata, children = Nil)
     else if (tpe =:= typeOf[Array[Byte]])
-      build(name, new ArrowType.Binary(), nullable = nullable, metadata = metadata, children = Nil)
-    else if (ReflectUtils.isCollection(tpe)) {
-      val child = fromScala(
-        tpe.typeArgs.head,
-        "item",
-        nullable = false, metadata = None,
-      )
-
-      build(name, new ArrowType.List(), nullable = nullable, metadata = metadata, children = List(child))
-    }
+      build(name, ArrowType.Binary.INSTANCE, nullable = nullable, metadata = metadata, children = Nil)
     else if (ReflectUtils.isMap(tpe)) {
       val keyField = fromScala(
         tpe.typeArgs.head, "key",
@@ -115,11 +105,12 @@ object ArrowField {
       )
       val valField = fromScala(
         tpe.typeArgs(1), "value",
-        nullable = true, metadata = None
+        nullable = false, metadata = None
       )
 
       val entries  = build(
-        "entries", ArrowType.Struct.INSTANCE,
+        "entries",
+        ArrowType.Struct.INSTANCE,
         nullable = nullable, metadata = None,
         children = List(keyField, valField)
       )
@@ -133,37 +124,30 @@ object ArrowField {
         children = List(entries)
       )
     }
-    else if (tpe.typeSymbol.fullName.startsWith("scala.Tuple")) {
-      val kids = tpe.typeArgs.zipWithIndex.map {
-        case (a, i) => fromScala(
-          a, s"_${i+1}",
-          nullable = false, metadata = None
-        )
-      }
+    else if (ReflectUtils.isIterable(tpe)) {
+      val child = fromScala(
+        tpe.typeArgs.head,
+        "item",
+        nullable = false, metadata = None,
+      )
 
-      val m = metadata.getOrElse(Map.empty) ++
-        Map("namespace" -> tpe.typeSymbol.fullName)
-
-      build(name, ArrowType.Struct.INSTANCE, nullable = nullable, metadata = Some(m), children = kids)
-    }
-    else if (ReflectUtils.isStruct(tpe)) {
-      val ctor   = tpe.decl(termNames.CONSTRUCTOR).asMethod
-      val params = ctor.paramLists.flatten
-      val kids = params.map { p =>
-        fromScala(
-          p.typeSignatureIn(tpe).resultType,
-          p.name.decodedName.toString,
-          nullable = false, metadata = None,
-        )
-      }
-
-      val m = metadata.getOrElse(Map.empty) ++
-        Map("namespace" -> tpe.typeSymbol.fullName)
-
-      build(name, ArrowType.Struct.INSTANCE, nullable = nullable, metadata = Some(m), children = kids)
+      build(
+        name, ArrowType.List.INSTANCE,
+        nullable = nullable,
+        metadata = metadata, children = List(child)
+      )
     }
     else {
-      throw new IllegalArgumentException(s"Unsupported Scala type for Arrow conversion: $tpe")
+      val codec = FastCtorCache.codecFor(tpe)
+      val children = codec.arrowFields
+
+      val m = metadata.getOrElse(Map.empty) ++
+        Map("namespace" -> tpe.typeSymbol.fullName)
+
+      build(
+        name, ArrowType.Struct.INSTANCE, nullable = nullable, metadata = Some(m),
+        children = children
+      )
     }
   }
 }

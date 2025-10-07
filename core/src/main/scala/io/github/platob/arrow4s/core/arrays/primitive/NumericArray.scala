@@ -1,14 +1,15 @@
 package io.github.platob.arrow4s.core.arrays.primitive
 
+import io.github.platob.arrow4s.core.extensions.TypeExtension
 import org.apache.arrow.vector.FieldVector
 
-trait NumericArray[T] extends PrimitiveArray[T] {
+trait NumericArray extends PrimitiveArray {
 
 }
 
 object NumericArray {
-  trait Typed[V <: FieldVector, T]
-    extends PrimitiveArray.Typed[V, T] with NumericArray[T] {
+  abstract class Typed[V <: FieldVector, T : TypeExtension]
+    extends PrimitiveArray.Typed[V, T] with NumericArray {
 
   }
 }

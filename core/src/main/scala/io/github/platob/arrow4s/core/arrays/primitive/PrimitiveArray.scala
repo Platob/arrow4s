@@ -1,12 +1,13 @@
 package io.github.platob.arrow4s.core.arrays.primitive
 
 import io.github.platob.arrow4s.core.arrays.{ArrowArray, LogicalArray}
-import io.github.platob.arrow4s.core.entensions.TypeExtension
-import org.apache.arrow.vector.{FieldVector, ValueVector}
+import io.github.platob.arrow4s.core.extensions.TypeExtension
+import org.apache.arrow.vector.FieldVector
 
+import scala.reflect.ClassTag
 import scala.reflect.runtime.{universe => ru}
 
-abstract class PrimitiveArray[ScalaType : TypeExtension] extends ArrowArray[ScalaType] {
+trait PrimitiveArray extends ArrowArray {
   override def isPrimitive: Boolean = true
 
   override def isNested: Boolean = false
@@ -14,21 +15,18 @@ abstract class PrimitiveArray[ScalaType : TypeExtension] extends ArrowArray[Scal
   override def isOptional: Boolean = false
 
   override def isLogical: Boolean = false
-
-  val typeExtension: TypeExtension[ScalaType] = implicitly[TypeExtension[ScalaType]]
-
-  override def scalaType: ru.Type = typeExtension.tpe
-
-  override def child(index: Int): ArrowArray[_] =
-    throw new UnsupportedOperationException("Primitive arrays do not have children")
-
-  override def child(name: String): ArrowArray[_] =
-    throw new UnsupportedOperationException("Primitive arrays do not have children")
 }
 
 object PrimitiveArray {
   abstract class Typed[V <: FieldVector, T : TypeExtension]
-    extends PrimitiveArray[T] with ArrowArray.Typed[V, T] {
+    extends ArrowArray.Typed[V, T] with PrimitiveArray {
+    val typeExtension: TypeExtension[T] = implicitly[TypeExtension[T]]
+
+    override def scalaType: ru.Type = typeExtension.tpe
+
+    implicit val classTag: ClassTag[T] = typeExtension.classTag
+
+    override def children: Seq[ArrowArray.Typed[_, _]] = Seq.empty
 
     override def setNull(index: Int): this.type = {
       vector.setNull(index)
@@ -37,8 +35,13 @@ object PrimitiveArray {
     }
 
     // Cast
-    override def innerAs(tpe: ru.Type): ArrowArray[_] = {
-      LogicalArray.convertPrimitive[V, T](arr = this, tpe = tpe)
+    override def innerAs(tpe: ru.Type): ArrowArray.Typed[V, _] = {
+      LogicalArray.convertPrimitive[PrimitiveArray.Typed[V, T], V, T](arr = this, tpe = tpe)
+        .asInstanceOf[ArrowArray.Typed[V, _]]
+    }
+
+    override def toArray(start: Int, size: Int): Array[T] = {
+      (start until (start + size)).map(get).toArray
     }
   }
 }

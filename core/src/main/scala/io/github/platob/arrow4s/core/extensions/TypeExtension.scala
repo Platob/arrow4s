@@ -1,11 +1,14 @@
-package io.github.platob.arrow4s.core.entensions
+package io.github.platob.arrow4s.core.extensions
 
 import io.github.platob.arrow4s.core.values.{UByte, UInt, ULong}
 
+import scala.reflect.ClassTag
 import scala.reflect.runtime.{universe => ru}
 
-abstract class TypeExtension[T] {
+abstract class TypeExtension[T : ClassTag] {
   def tpe: ru.Type
+
+  val classTag: ClassTag[T] = scala.reflect.classTag[T]
 
   // Convenience common types
   @inline def toBytes(value: T): Array[Byte]

@@ -1,11 +1,13 @@
 package io.github.platob.arrow4s.core.arrays.primitive
 
+import io.github.platob.arrow4s.core.extensions.TypeExtension
 import io.github.platob.arrow4s.core.values.{UByte, UInt, ULong}
 import org.apache.arrow.vector._
 
 import scala.reflect.runtime.{universe => ru}
 
-trait IntegralArray[V <: FieldVector, T] extends NumericArray.Typed[V, T] {
+abstract class IntegralArray[V <: FieldVector, T : TypeExtension]
+  extends NumericArray.Typed[V, T] {
 
 }
 

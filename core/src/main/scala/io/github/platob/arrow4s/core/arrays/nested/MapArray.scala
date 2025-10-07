@@ -8,9 +8,9 @@ import scala.reflect.runtime.{universe => ru}
 class MapArray[Key, Value](
   val scalaType: ru.Type,
   val vector: MapVector,
-  val elements: StructArray[(Key, Value)]
+  val elements: ArrowArray.Typed[_, (Key, Value)]
 ) extends NestedArray.Typed[MapVector, scala.collection.Map[Key, Value]] {
-  override def childrenArrays: Seq[ArrowArray[_]] = Seq(elements)
+  override def children: Seq[ArrowArray.Typed[_, _]] = Seq(elements)
 
   override def get(index: Int): scala.collection.Map[Key, Value] = {
     val (start, end) = (
@@ -45,12 +45,17 @@ class MapArray[Key, Value](
 
     this
   }
+
+  override def toArray(start: Int, size: Int): Array[scala.collection.Map[Key, Value]] = {
+    (start until (start + size)).map(get).toArray
+  }
 }
 
 object MapArray {
   def default(vector: MapVector): MapArray[Any, Any] = {
     val tpe = ru.typeOf[scala.collection.Map[Any, Any]]
-    val elements = ArrowArray.from(vector.getDataVector).asInstanceOf[StructArray[(Any, Any)]]
+    val elements = ArrowArray.from(vector.getDataVector)
+      .asInstanceOf[ArrowArray.Typed[_, (Any, Any)]]
 
     new MapArray[Any, Any](
       scalaType = tpe,

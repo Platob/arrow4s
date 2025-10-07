@@ -1,6 +1,6 @@
 package io.github.platob.arrow4s.io.ipc
 
-import io.github.platob.arrow4s.core.memory.RootAllocatorExtension
+import io.github.platob.arrow4s.core.extensions.RootAllocatorExtension
 import io.github.platob.arrow4s.io.DataInput
 import org.apache.arrow.dataset.file.{FileFormat, FileSystemDatasetFactory}
 import org.apache.arrow.dataset.jni.NativeMemoryPool

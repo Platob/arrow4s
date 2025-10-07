@@ -1,10 +1,12 @@
 package io.github.platob.arrow4s.core.arrays.primitive
 
-import org.apache.arrow.vector.{Decimal256Vector, DecimalVector, FieldVector, Float4Vector, Float8Vector}
+import io.github.platob.arrow4s.core.extensions.TypeExtension
+import org.apache.arrow.vector._
 
 import scala.reflect.runtime.{universe => ru}
 
-trait FloatingPointArray[V <: FieldVector, T] extends NumericArray.Typed[V, T] {
+abstract class FloatingPointArray[V <: FieldVector, T : TypeExtension]
+  extends NumericArray.Typed[V, T] {
 
 }
 

@@ -1,7 +1,7 @@
 package io.github.platob.arrow4s.core.arrays.nested
 
-import io.github.platob.arrow4s.core.arrays.ArrowArray
-import io.github.platob.arrow4s.core.entensions.FastCtorCache
+import io.github.platob.arrow4s.core.arrays.{ArrowArray, LogicalArray}
+import io.github.platob.arrow4s.core.extensions.FastCtorCache
 import io.github.platob.arrow4s.core.types.ArrowField
 import org.apache.arrow.memory.BufferAllocator
 import org.apache.arrow.vector.complex.StructVector
@@ -12,74 +12,22 @@ import org.apache.arrow.vector.{FieldVector, VectorSchemaRoot}
 import scala.collection.convert.ImplicitConversions.`iterable AsScalaIterable`
 import scala.reflect.runtime.{universe => ru}
 
-class StructArray[ScalaType](
-  val scalaType: ru.Type,
+class StructArray(
   val vector: StructVector,
-  val childrenArrays: Seq[ArrowArray[_]],
-  val getter: (StructArray[ScalaType], Int) => ScalaType,
-  val setter: (StructArray[ScalaType], Int, ScalaType) => Unit
-) extends NestedArray.Typed[StructVector, ScalaType] {
-  private val arrayTL: Array[AnyRef] = new Array[AnyRef](cardinality) // reusable buffer for child values
+  val children: Seq[ArrowArray.Typed[_, _]],
+) extends NestedArray.Typed[StructVector, ArrowRecord] {
+  override val scalaType: ru.Type = ru.typeOf[ArrowRecord]
 
   override def setValueCount(count: Int): StructArray.this.type = {
     vector.setValueCount(count)
-    childrenArrays.foreach(_.setValueCount(count))
+    children.foreach(_.setValueCount(count))
 
     this
   }
 
-  override def innerAs(tpe: ru.Type): ArrowArray[_] = {
-    val codec = FastCtorCache.codecFor(tpe)
-
-    val casted =
-      if (codec.tuple) {
-        codec.fields.zipWithIndex.map {
-          case ((_, fieldType), idx) =>
-            val child = this.child(index = idx)
-            // Cast child array to the expected type
-            child.as(fieldType)
-        }
-      } else {
-        codec.fields.map {
-          case (name, fieldType) =>
-            val child = this.child(name = name)
-            // Cast child array to the expected type
-            child.as(fieldType)
-        }
-      }
-
-    new StructArray[AnyRef](
-      scalaType = tpe,
-      vector = vector,
-      childrenArrays = casted,
-      getter = (arr, index) => {
-        var i = 0
-        while (i < arr.arrayTL.length) {
-          // child.get returns Any; MethodHandle wants AnyRef (boxed ok)
-          arr.arrayTL(i) = arr.child(i).get(index).asInstanceOf[AnyRef]
-          i += 1
-        }
-        codec.ctor.invokeWithArguments(arr.arrayTL: _*) // returns the case class instance
-      },
-      setter = (arr, index, value) => {
-        arr.vector.setIndexDefined(index) // mark the struct itself non-null
-
-        // explode the Product with zero iterator churn
-        val p = value.asInstanceOf[Product]
-        var i = 0
-        while (i < arr.arrayTL.length) {
-          val child = arr.child(i)
-          val value = p.productElement(i) // Any
-          child.unsafeSet(index, value)
-          i += 1
-        }
-      }
-    )
-  }
-
   // Accessors
-  override def get(index: Int): ScalaType = {
-    getter(this, index)
+  override def get(index: Int): ArrowRecord = {
+    ArrowRecord.view(array = this, index = index)
   }
 
   // Mutators
@@ -89,10 +37,70 @@ class StructArray[ScalaType](
     this
   }
 
-  override def set(index: Int, value: ScalaType): this.type = {
-    setter(this, index, value)
+  override def set(index: Int, value: ArrowRecord): this.type = {
+    vector.setIndexDefined(index) // mark the struct itself non-null
+
+    var i = 0
+    value.toArray.foreach(v => {
+      val child = children(i)
+      child.unsafeSet(index, v)
+      i += 1
+    })
 
     this
+  }
+
+  override def innerAs(tpe: ru.Type): LogicalArray[StructArray, StructVector, ArrowRecord, AnyRef] = {
+    val codec = FastCtorCache.codecFor(tpe)
+
+    val casted =
+      if (codec.tuple) {
+        codec.fields.zipWithIndex.map {
+          case (field, idx) =>
+            val child = this.children(idx)
+            // Cast child array to the expected type
+            child.as(field.tpe)
+        }
+      } else {
+        codec.fields.map(field => {
+          val child = this.child(name = field.name)
+
+          // Cast child array to the expected type
+          child.as(field.tpe)
+        })
+      }
+
+    val getter = (arr: LogicalArray[StructArray, StructVector, ArrowRecord, _], index: Int) => {
+      val values = arr.children.map(child => {
+        val value = child.get(index)
+
+        value
+      })
+
+      codec.ctor.invokeWithArguments(values: _*) // returns the case class instance
+    }
+
+    val setter = (arr: LogicalArray[StructArray, StructVector, ArrowRecord, _], index: Int, value: Any) => {
+      arr.vector.setIndexDefined(index) // mark the struct itself non-null
+
+      // explode the Product with zero iterator churn
+      val values = value.asInstanceOf[Product].productIterator.toSeq
+      var i = 0
+
+      values.foreach(v => {
+        val child = arr.children(i)
+        child.unsafeSet(index, v)
+        i += 1
+      })
+    }
+
+    new LogicalArray[StructArray, StructVector, ArrowRecord, AnyRef](
+      scalaType = tpe,
+      inner = this,
+      getter = getter,
+      setter = setter,
+      children = casted,
+    )
   }
 
   def toRoot: VectorSchemaRoot = StructArray.toStructRoot(vector)
@@ -159,28 +167,16 @@ object StructArray {
     root
   }
 
-  def default(root: VectorSchemaRoot): StructArray[ArrowRecord] = {
+  def default(root: VectorSchemaRoot): StructArray = {
     val structVector = toStructVector(root, fieldName = "root")
 
     default(structVector)
   }
 
-  def default(structVector: StructVector): StructArray[ArrowRecord] = {
-    new StructArray[ArrowRecord](
-      scalaType = ru.typeOf[ArrowRecord],
+  def default(structVector: StructVector): StructArray = {
+    new StructArray(
       vector = structVector,
-      childrenArrays = structVector.getChildrenFromFields.toSeq.map(ArrowArray.from),
-      getter = (arr, index) => ArrowRecord.view(arr, index),
-      setter = (arr, index, value) => {
-        for (i <- value.indices) {
-          val child = arr.childrenArrays(i)
-          val fieldValue = value.getAny(i)
-
-          child.unsafeSet(index, fieldValue)
-        }
-
-        this
-      }
+      children = structVector.getChildrenFromFields.toSeq.map(ArrowArray.from)
     )
   }
 }

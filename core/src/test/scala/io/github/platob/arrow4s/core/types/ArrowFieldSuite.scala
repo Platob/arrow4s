@@ -62,8 +62,23 @@ class ArrowFieldSuite extends FunSuite {
     assertEquals(k.getType, ArrowType.Utf8.INSTANCE)
 
     assertEquals(v.getName, "value")
-    assertEquals(v.isNullable, true)
+    assertEquals(v.isNullable, false)
     assertEquals(v.getType, new ArrowType.Int(32, true))
+  }
+
+  test("build a list of nullable Int32 for Seq[Option[Int]]") {
+    val f = ArrowField.fromScala[Seq[Option[Int]]](name = "optInts")
+    assertEquals(f.getType, new ArrowType.List())
+    assertEquals(f.isNullable, false)
+
+    val item = children(f) match {
+      case one :: Nil => one
+      case other      => fail(s"Expected exactly one child, got: $other")
+    }
+    assertEquals(item.getName, "item")
+    assertEquals(item.getType, new ArrowType.Int(32, true))
+    // element nullability expectation per builder behavior
+    assertEquals(item.isNullable, true)
   }
 
   test("build a Struct for tuples with numbered children") {
@@ -108,7 +123,7 @@ class ArrowFieldSuite extends FunSuite {
       // e.g., Either is not implemented in ArrowField.fromScala
       ArrowField.fromScala[Either[Int, Int]](name = "e")
     }
-    assert(ex.getMessage.contains("Unsupported Scala type"))
+    assertEquals(ex.getMessage, "Cannot create struct codec for type with no constructor parameters: scala.util.Either[Int,Int]")
   }
 }
 

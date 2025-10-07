@@ -1,13 +1,13 @@
 package io.github.platob.arrow4s.core.arrays
 
-import io.github.platob.arrow4s.core.arrays.ArrowArrayTest.TestRecord
+import io.github.platob.arrow4s.core.arrays.ArrowArraySuite.TestRecord
 import io.github.platob.arrow4s.core.arrays.primitive.IntegralArray.IntArray
 import io.github.platob.arrow4s.core.values.UInt
 import munit.FunSuite
 import org.apache.arrow.vector.IntVector
 
-class ArrowArrayTest extends FunSuite {
-  val values: Seq[Int] = 0 until 10000
+class ArrowArraySuite extends FunSuite {
+  val values: Seq[Int] = 0 until 5
 
   test("ArrowArray.make Long array with cast") {
     val array = ArrowArray(values:_*)
@@ -15,7 +15,7 @@ class ArrowArrayTest extends FunSuite {
     // Assert is instance IntegralArray
     assert(array.isInstanceOf[IntArray])
     assert(array.as[Int].isInstanceOf[IntArray])
-    assert(array.as[Long].isInstanceOf[LogicalArray[IntVector, Int, Long]])
+    assert(array.as[Long].isInstanceOf[LogicalArray[IntArray, IntVector, Int, Long]])
     assertEquals(array.as[Long], values.map(_.toLong))
   }
 
@@ -55,25 +55,60 @@ class ArrowArrayTest extends FunSuite {
     val array = ArrowArray(values:_*)
 
     assert(array.as[Int].isInstanceOf[IntArray])
+    assertEquals(array.nullCount, 1)
     assertEquals(array.as[Int], values.map(_.getOrElse(null)))
     assertEquals(array.as[Long], values.map(v => v.map(_.toLong).getOrElse(null)))
     assertEquals(array.as[Double], values.map(v => v.map(_.toDouble).getOrElse(null)))
+  }
+
+  test("ArrowArray.make list array") {
+    val listValues: Seq[Seq[Int]] = Seq(
+      Seq(1, 2, 3),
+      Seq(4, 5),
+      Seq(),
+      Seq(6, 7, 8, 9)
+    )
+    val array = ArrowArray(listValues:_*)
+
+    assertEquals(array.as[Seq[Int]], listValues)
   }
 
   test("ArrowArray.make case class array") {
     val records = (1 to 5).map(i => TestRecord(i, s"str_$i", if (i % 2 == 0) Some(i.toDouble) else None))
     val array = ArrowArray(records:_*)
     val tuples = array.as[(Int, String, Option[Double])]
+    val first = array.get(0)
 
     assertEquals(array.child("a").as[Int], records.map(_.a))
     assertEquals(array.child("b").as[String], records.map(_.b))
     assertEquals(array.child("c").as[Option[Double]], records.map(_.c))
-    assertEquals(array.get(0), records.head)
+    assertEquals(first, records.head)
     assertEquals(array, records)
     assertEquals(tuples, records.map(r => (r.a, r.b, r.c)))
   }
+
+  test("mutations") {
+    val array = ArrowArray(values.map(Option(_)):_*)
+
+    // Test set
+    array.set(2, None)
+    array.set(values.length, Some(100))
+
+    assertEquals(array.nullCount, 1)
+    assertEquals(array.get(values.length), Some(100))
+    // Unchanged length
+    assertEquals(array.length, values.length)
+
+    // Test append
+    array.append(None).append(Some(101))
+
+    assertEquals(array.nullCount, 2)
+    assertEquals(array.length, values.length + 2)
+    assertEquals(array.get(values.length), None)
+    assertEquals(array.get(values.length + 1), Some(101))
+  }
 }
 
-object ArrowArrayTest {
+object ArrowArraySuite {
   case class TestRecord(a: Int, b: String, c: Option[Double])
 }

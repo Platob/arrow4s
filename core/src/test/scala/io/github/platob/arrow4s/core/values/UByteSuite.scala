@@ -2,7 +2,7 @@ package io.github.platob.arrow4s.core.values
 
 import munit.FunSuite
 
-class UByteTest extends FunSuite {
+class UByteSuite extends FunSuite {
   test("UByte.trunc should truncate values correctly") {
     assertEquals(UByte.trunc(0), UByte(0))
     assertEquals(UByte.trunc(255), UByte(255))

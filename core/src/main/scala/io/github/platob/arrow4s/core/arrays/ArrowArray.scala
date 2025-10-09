@@ -3,250 +3,185 @@ package arrays
 
 import io.github.platob.arrow4s.core.arrays.nested.StructArray
 import io.github.platob.arrow4s.core.arrays.primitive.{BinaryArray, FloatingPointArray, IntegralArray}
+import io.github.platob.arrow4s.core.arrays.traits.TArrowArray
+import io.github.platob.arrow4s.core.codec.ValueCodec
 import io.github.platob.arrow4s.core.extensions.RootAllocatorExtension
-import io.github.platob.arrow4s.core.reflection.ReflectUtils
-import io.github.platob.arrow4s.core.types.ArrowField
+import io.github.platob.arrow4s.core.values.ValueConverter
 import org.apache.arrow.vector._
 import org.apache.arrow.vector.complex.{ListVector, MapVector, StructVector}
 import org.apache.arrow.vector.types.FloatingPointPrecision
 import org.apache.arrow.vector.types.pojo.ArrowType.ArrowTypeID
 import org.apache.arrow.vector.types.pojo.{ArrowType, Field}
 
-import scala.reflect.runtime.{universe => ru}
+import scala.collection.{Factory, mutable}
 
-trait ArrowArray extends AutoCloseable {
-  // Properties
-  @inline def vector: ValueVector
+trait ArrowArray[Value] extends TArrowArray
+  with scala.collection.immutable.IndexedSeq[Value] {
+  def codec: ValueCodec[Value]
 
-  @inline def isPrimitive: Boolean
+  def children: Seq[ArrowArray[_]]
 
-  @inline def isNested: Boolean
+  def childFields: Seq[Field] = children.map(_.field)
 
-  @inline def isOptional: Boolean
+  @inline private def childIndex(name: String): Int = {
+    val index = childFields.indexWhere(_.getName == name)
 
-  @inline def isLogical: Boolean
-
-  @inline def field: Field = vector.getField
-
-  @inline def nullable: Boolean = field.isNullable
-
-  @inline def length: Int = vector.getValueCount
-
-  @inline def nullCount: Int = vector.getNullCount
-
-  val cardinality: Int = this.field.getChildren.size()
-
-  def scalaType: ru.Type
-
-  // Memory management
-  def ensureIndex(index: Int): this.type = {
-    if (index >= vector.getValueCapacity) {
-      vector.reAlloc()
+    if (index == -1) {
+      // Try case-insensitive match
+      return childFields.indexWhere(_.getName.equalsIgnoreCase(name))
     }
 
-    this
+    index
   }
 
-  def setValueCount(count: Int): this.type = {
-    vector.setValueCount(count)
+  @throws[NoSuchElementException]
+  @inline def childAt(index: Int): ArrowArray[_] = {
+    try {
+      children(index)
+    } catch {
+      case _: IndexOutOfBoundsException =>
+        throw new NoSuchElementException(s"No child at index $index within ${childFields.map(_.getName).mkString("['", "', '", "']")}")
+    }
+  }
 
-    this
+  @throws[NoSuchElementException]
+  @inline def child(name: String): ArrowArray[_] = {
+    val index = childIndex(name)
+
+    try {
+      children(index)
+    } catch {
+      case _: IndexOutOfBoundsException =>
+        throw new NoSuchElementException(s"No child with name '$name' within ${childFields.map(_.getName).mkString("['", "', '", "']")}")
+    }
   }
 
   // Accessors
-  @inline def unsafeGet[T](index: Int): T
+  @inline def apply(index: Int): Value = getOrDefault(index)
 
-  // Mutators
-  @inline def isNull(index: Int): Boolean = vector.isNull(index)
+  @inline def get(index: Int): Value
 
-  @inline def setNull(index: Int): this.type
+  override def unsafeGet[V](index: Int): V = {
+    get(index).asInstanceOf[V]
+  }
 
-  @inline def unsafeSet(index: Int, value: Any): this.type
+  @inline def getOrDefault(index: Int): Value = {
+    if (isNull(index)) this.codec.default
+    else get(index)
+  }
 
-  // AutoCloseable
-  def close(): Unit = vector.close()
+  // Mutation
+  @inline def set(index: Int, value: Value): this.type
+
+  override def unsafeSet(index: Int, value: Any): Unit = {
+    set(index, value.asInstanceOf[Value])
+  }
+
+  @inline def setValues(index: Int, values: Iterable[Value]): this.type = {
+    values.zipWithIndex.foreach { case (v, i) => set(index + i, v) }
+
+    this
+  }
+
+  @inline def append(value: Value): this.type = {
+    val index = length
+
+    ensureIndex(index)
+    set(index, value)
+    setValueCount(index + 1)
+
+    this
+  }
+
+  @inline def appendValues(values: Iterable[Value]): this.type = {
+    val startIndex = length
+    val newLength = startIndex + values.size
+    ensureIndex(newLength - 1)
+
+    values.zipWithIndex.foreach { case (v, i) =>
+      val index = startIndex + i
+
+      set(index, v)
+    }
+
+    setValueCount(newLength)
+
+    this
+  }
+
+
+  /**
+   * Convert the entire array to a standard Scala array.
+   * @return scala.Array[ScalaType]
+   */
+  def toArray: Array[Value] = toArray(0, length)
+
+  /**
+   * Convert a slice of the array to a standard Scala array.
+   * @param start start index (inclusive)
+   * @param end end index (exclusive)
+   * @return scala.Array[ScalaType]
+   */
+  def toArray(start: Int, end: Int): Array[Value] = {
+    (start until end).map(get).toArray(this.codec.clsTag)
+  }
+
+  // Cast
+  def as[C](implicit codec: ValueCodec[C], converter: ValueConverter[Value, C]): ArrowArray[C]
+
+  def asUnsafe[C](implicit codec: ValueCodec[C]): ArrowArray[C] = {
+    val casted = asUnchecked(codec)
+
+    casted.asInstanceOf[ArrowArray[C]]
+  }
+
+  private[core] def asUnchecked(codec: ValueCodec[_]): ArrowArray[_] = {
+    if (this.codec == codec) {
+      return this
+    }
+
+    val result = if (codec.isOption) {
+      val casted = asUnchecked(codec = codec.childAt(0))
+
+      casted.toOptional.asInstanceOf[ArrowArray[_]]
+    } else {
+      this.innerAs(codec)
+    }
+
+    result
+  }
+
+  @inline def toOptional: LogicalArray.Optional[Value, _, _]
+
+  private[core] def innerAs(codec: ValueCodec[_]): ArrowArray[_]
+
+  def arrowSlice(start: Int, end: Int): ArraySlice[Value]
 }
 
 object ArrowArray {
-  abstract class Typed[V <: ValueVector, ScalaType]
-    extends ArrowArray
-      with scala.collection.immutable.IndexedSeq[ScalaType] {
-    def vector: V
-
-    def children: Seq[ArrowArray.Typed[_, _]]
-
-    def childFields: Seq[Field] = children.map(_.field)
-
-    @inline def childIndex(name: String): Int = {
-      val index = childFields.indexWhere(_.getName == name)
-
-      if (index == -1) {
-        // Try case-insensitive match
-        return childFields.indexWhere(_.getName.equalsIgnoreCase(name))
-      }
-
-      index
-    }
-
-    @throws[NoSuchElementException]
-    @inline def childAt(index: Int): ArrowArray.Typed[_, _] = {
-      try {
-        children(index)
-      } catch {
-        case _: IndexOutOfBoundsException =>
-          throw new NoSuchElementException(s"No child at index $index within ${childFields.map(_.getName).mkString("['", "', '", "']")}")
-      }
-    }
-
-    @throws[NoSuchElementException]
-    @inline def child(name: String): ArrowArray.Typed[_, _] = {
-      val index = childIndex(name)
-
-      try {
-        children(index)
-      } catch {
-        case _: IndexOutOfBoundsException =>
-          throw new NoSuchElementException(s"No child with name '$name' within ${childFields.map(_.getName).mkString("['", "', '", "']")}")
-      }
-    }
-
-    @inline def findChild(name: String): Option[ArrowArray.Typed[_, _]] = {
-      findChild(childIndex(name))
-    }
-
-    @inline def findChild(index: Int): Option[ArrowArray.Typed[_, _]] = {
-      if (index < 0 || index >= children.size) None
-      else Some(children(index))
-    }
-
-    // Accessors
-    @inline def apply(index: Int): ScalaType = getOrNull(index)
-
-    @inline def get(index: Int): ScalaType
-
-    override def unsafeGet[T](index: Int): T = {
-      get(index).asInstanceOf[T]
-    }
-
-    @inline def getOrNull(index: Int): ScalaType = {
-      if (isNull(index)) null.asInstanceOf[ScalaType]
-      else get(index)
-    }
-
-    // Mutation
-    @inline def set(index: Int, value: ScalaType): this.type
-
-    @inline def setOrNull(index: Int, value: ScalaType): this.type = {
-      if (value == null) setNull(index)
-      else set(index, value)
-    }
-
-    @inline def unsafeSet(index: Int, value: Any): this.type = {
-      set(index, value.asInstanceOf[ScalaType])
-    }
-
-    @inline def setValues(index: Int, values: ArrowArray.Typed[_, ScalaType]): this.type = {
-      (0 until values.length).foreach(i => set(index + i, values(i)))
-
-      this
-    }
-
-    @inline def setValues(index: Int, values: Array[ScalaType]): this.type = {
-      values.zipWithIndex.foreach { case (v, i) => set(index + i, v) }
-
-      this
-    }
-
-    @inline def setValues(index: Int, values: Iterable[ScalaType]): this.type = {
-      values.zipWithIndex.foreach { case (v, i) => set(index + i, v) }
-
-      this
-    }
-
-    @inline def setValues(index: Int, values: Iterator[ScalaType], fetchSize: Int): this.type = {
-      values.grouped(size = fetchSize).map(b => setValues(index, b))
-
-      this
-    }
-
-    @inline def append(value: ScalaType): this.type = {
-      val index = length
-
-      ensureIndex(index)
-      set(index, value)
-      setValueCount(index + 1)
-
-      this
-    }
-
-    @inline def appendValues(values: Iterable[ScalaType]): this.type = {
-      val startIndex = length
-      val newLength = startIndex + values.size
-      ensureIndex(newLength - 1)
-
-      values.zipWithIndex.foreach { case (v, i) =>
-        val index = startIndex + i
-
-        set(index, v)
-      }
-
-      setValueCount(newLength)
-
-      this
-    }
+  trait Typed[Value, ArrowVector <: ValueVector, Arr <: Typed[Value, ArrowVector, Arr]]
+    extends ArrowArray[Value] {
+    def vector: ArrowVector
 
     // Cast
-    def as[C : ru.TypeTag]: ArrowArray.Typed[V, C] = {
-      val casted = as(ru.typeOf[C].dealias)
-
-      casted.asInstanceOf[ArrowArray.Typed[V, C]]
-    }
-
-    def as(tpe: ru.Type): ArrowArray.Typed[V, _] = {
-      val st = this.scalaType
-      if (this.scalaType =:= tpe) {
-        return this
+    def as[C](implicit codec: ValueCodec[C], converter: ValueConverter[Value, C]): ArrowArray.Typed[C, ArrowVector, _] = {
+      if (this.codec == codec) {
+        return this.asInstanceOf[ArrowArray.Typed[C, ArrowVector, _]]
       }
 
-      if (ReflectUtils.isOption(tpe)) {
-        val child = ReflectUtils.typeArgument(tpe, 0)
-
-        return as(child).toOptional(tpe)
-      }
-
-      this.innerAs(tpe)
+      LogicalArray.converter[Value, ArrowVector, Arr, C](
+        array = this.asInstanceOf[Arr],
+        codec = codec
+      )(converter = converter)
     }
 
-    def innerAs(tpe: ru.Type): ArrowArray.Typed[V, _] = {
-      throw new IllegalArgumentException(
-        s"Cannot cast array from $scalaType to $tpe"
-      )
+    def toOptional: LogicalArray.Optional[Value, ArrowVector, Arr] = {
+      LogicalArray.optional[Value, ArrowVector, Arr](this.asInstanceOf[Arr], this.codec.toOptionalCodec)
     }
 
-    /**
-     * Convert the entire array to a standard Scala array.
-     * @return scala.Array[ScalaType]
-     */
-    def toArray: Array[ScalaType] = toArray(0, length)
-
-    /**
-     * Convert a slice of the array to a standard Scala array.
-     * @param start start index (inclusive)
-     * @param end end index (exclusive)
-     * @return scala.Array[ScalaType]
-     */
-    def toArray(start: Int, end: Int): Array[ScalaType]
-
-    def toOptional(tpe: ru.Type): OptionArray.Typed[V, ScalaType] = {
-      new OptionArray.Typed[V, ScalaType](
-        scalaType = tpe,
-        inner = this
-      )
-    }
-
-    override def slice(start: Int, end: Int): ArraySlice.Typed[V, ScalaType] = {
-      new ArraySlice.Typed[V, ScalaType](
-        inner = this,
+    override def arrowSlice(start: Int, end: Int): ArraySlice.Typed[Value, ArrowVector, Arr] = {
+      new ArraySlice.Typed[Value, ArrowVector, Arr](
+        inner = this.asInstanceOf[Arr],
         startIndex = start,
         endIndex = end
       )
@@ -254,18 +189,18 @@ object ArrowArray {
   }
 
   // Factory methods
-  def apply[T](values: T*)(implicit tt: ru.TypeTag[T]): ArrowArray.Typed[_, T] = make(values)
+  def apply[T](values: T*)(implicit codec: ValueCodec[T]): ArrowArray[T] = make(values)
 
-  def empty[T](implicit tt: ru.TypeTag[T]): ArrowArray.Typed[_, T] = make(Seq.empty[T])
+  def empty[T](implicit codec: ValueCodec[T]): ArrowArray[T] = make(Seq.empty[T])
 
-  def fill[T](n: Int)(elem: => T)(implicit tt: ru.TypeTag[T]): ArrowArray.Typed[_, T] = {
+  def fill[T](n: Int)(elem: => T)(implicit codec: ValueCodec[T]): ArrowArray[T] = {
     val values = Seq.fill(n)(elem)
 
     make(values)
   }
 
-  def make[T](values: Seq[T])(implicit tt: ru.TypeTag[T]): ArrowArray.Typed[_, T] = {
-    val field = ArrowField.fromScala[T]
+  def make[T](values: Seq[T])(implicit codec: ValueCodec[T]): ArrowArray[T] = {
+    val field = codec.arrowField
     val allocator = RootAllocatorExtension.INSTANCE
 
     // Vector
@@ -275,7 +210,7 @@ object ArrowArray {
     vector.setValueCount(values.size)
 
     // Array
-    val array = from(vector).as[T]
+    val array = from(vector).asUnsafe[T]
 
     // Fill
     array.setValues(0, values)
@@ -283,7 +218,7 @@ object ArrowArray {
     array
   }
 
-  def from(vector: ValueVector): ArrowArray.Typed[_, _] = {
+  def from(vector: ValueVector): ArrowArray.Typed[_, _, _] = {
     val field = vector.getField
     val dtype = field.getType
 
@@ -353,4 +288,46 @@ object ArrowArray {
         throw new IllegalArgumentException(s"Unsupported data type: $dtype")
     }
   }
+
+  // Produces a concrete typed ArrowArray for the element type T
+  implicit def arrowArrayFactory[T](implicit codec: ValueCodec[T]): Factory[T, ArrowArray[T]] =
+    new Factory[T, ArrowArray[T]] {
+      def fromSpecific(it: IterableOnce[T]): ArrowArray[T] = {
+        val b = newBuilder
+        b.addAll(it)
+        b.result()
+      }
+
+      def newBuilder: mutable.Builder[T, ArrowArray[T]] =
+        new mutable.Builder[T, ArrowArray[T]] {
+          // Allocate an Arrow vector using the codec's Arrow field
+          private val field     = codec.arrowField
+          private val allocator = RootAllocatorExtension.INSTANCE
+          private val vector    = {
+            val v = field.createVector(allocator)
+            v.allocateNew()
+            v
+          }
+
+          // Wrap it as an ArrowArray and write into it incrementally
+          private val arr = ArrowArray.from(vector).asUnsafe[T]
+          private var i   = 0
+
+          def addOne(x: T): this.type = {
+            arr.append(x)
+            i += 1
+            this
+          }
+
+          def clear(): Unit = {
+            vector.setValueCount(0)
+            i = 0
+          }
+
+          def result(): ArrowArray[T] = {
+            arr.setValueCount(i)
+            arr
+          }
+        }
+    }
 }

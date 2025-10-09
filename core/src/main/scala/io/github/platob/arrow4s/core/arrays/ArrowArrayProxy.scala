@@ -1,55 +1,55 @@
 package io.github.platob.arrow4s.core.arrays
 
+import io.github.platob.arrow4s.core.arrays.traits.TArrowArrayProxy
+import io.github.platob.arrow4s.core.codec.ValueCodec
+import io.github.platob.arrow4s.core.values.ValueConverter
 import org.apache.arrow.vector.ValueVector
 
-import scala.reflect.runtime.{universe => ru}
+trait ArrowArrayProxy[T] extends ArrowArray[T] with TArrowArrayProxy {
+  override def asUnchecked(codec: ValueCodec[_]): ArrowArray[_] = {
+    if (this.codec == codec) {
+      return this
+    }
 
-trait ArrowArrayProxy extends ArrowArray {
-  def inner: ArrowArray
+    if (this.inner.codec == codec.childAt(0).tpe) {
+      return this.inner
+    }
 
-  override def vector: ValueVector = inner.vector
+    this.inner.asUnchecked(codec)
+  }
 
-  override def length: Int = inner.length
-
-  override def isPrimitive: Boolean = inner.isPrimitive
-
-  override def isNested: Boolean = inner.isNested
-
-  override def isOptional: Boolean = inner.isOptional
-
-  override def isLogical: Boolean = inner.isLogical
-
-  override val cardinality: Int = inner.cardinality
-
-  override def close(): Unit = inner.close()
+  override def innerAs(codec: ValueCodec[_]): ArrowArray[_] = this.asUnchecked(codec)
 }
 
 object ArrowArrayProxy {
-  abstract class Typed[V <: ValueVector, Inner, Outer]
-    extends ArrowArray.Typed[V, Outer] with ArrowArrayProxy {
-    override def inner: ArrowArray.Typed[V, Inner]
+  trait Typed[
+    ArrowVector <: ValueVector,
+    Inner, InArray <: ArrowArray.Typed[Inner, ArrowVector, InArray],
+    Outer, Arr <: Typed[ArrowVector, Inner, InArray, Outer, Arr]
+  ] extends ArrowArray.Typed[Outer, ArrowVector, Arr] with ArrowArrayProxy[Outer] {
+    def inner: InArray
 
-    override def vector: V = inner.vector
+    override def vector: ArrowVector = inner.vector
 
-    // Mutators
-    override def setNull(index: Int): this.type = {
+    override def setNull(index: Int): Typed.this.type = {
       inner.setNull(index)
       this
     }
 
     // Casting
-    override def as(tpe: ru.Type): ArrowArray.Typed[V, _] = {
-      if (this.scalaType =:= tpe) {
-        return this
+    override def as[C](implicit
+      codec: ValueCodec[C],
+      converter: ValueConverter[Outer, C]
+    ): ArrowArray.Typed[C, ArrowVector, _] = {
+      if (this.codec == codec) {
+        return this.asInstanceOf[ArrowArray.Typed[C, ArrowVector, _]]
       }
 
-      if (this.inner.scalaType =:= tpe) {
-        return this.inner
+      if (this.inner.codec == codec.tpe) {
+        return this.inner.asInstanceOf[ArrowArray.Typed[C, ArrowVector, _]]
       }
 
-      this.inner.as(tpe)
+      this.inner.asUnchecked(codec).asInstanceOf[ArrowArray.Typed[C, ArrowVector, _]]
     }
-
-    override def innerAs(tpe: ru.Type): ArrowArray.Typed[V, _] = this.as(tpe)
   }
 }

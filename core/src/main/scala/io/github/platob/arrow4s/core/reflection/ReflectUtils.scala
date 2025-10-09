@@ -1,56 +1,55 @@
 package io.github.platob.arrow4s.core.reflection
 
 import scala.reflect.ClassTag
-import scala.reflect.runtime.universe.{Type, TypeTag, typeOf}
+import scala.reflect.runtime.universe.{Type, typeOf}
 import scala.reflect.runtime.{universe => ru}
 
 object ReflectUtils {
-  def isOption(tpe: Type): Boolean =
-    tpe.typeConstructor =:= typeOf[Option[_]].typeConstructor
+  /**
+   * Check if a type is an Option and return the inner type if so.
+   * @param tpe the type to check
+   * @return
+   */
+  @inline def unwrapNullable(tpe: Type): (Boolean, Type) =
+    if (tpe =:= typeOf[Option[_]])
+      (true, tpe.typeArgs.head)
+    else if (tpe <:< typeOf[Some[_]])
+      (false, tpe.typeArgs.head)
+    else
+      (false, tpe)
 
-  def implements(tpe: Type, interface: Type): Boolean = {
-    tpe.baseClasses.exists(_.asType.toType =:= interface)
-  }
+  @inline def isOption(tpe: Type): Boolean =
+    tpe.typeConstructor =:= typeOf[Option[_]].typeConstructor
 
   private def implementsConstructor(tpe: Type, interface: Type): Boolean = {
     val ctr = interface.typeConstructor
+
     tpe.baseClasses.exists(_.asType.toType.typeConstructor =:= ctr)
   }
 
-  def isTuple(tpe: Type): Boolean =
-    tpe.typeSymbol.fullName.startsWith("scala.Tuple")
-
-  def isIterable(tpe: Type): Boolean = {
+  @inline def isIterable(tpe: Type): Boolean = {
     implementsConstructor(tpe, typeOf[Iterable[_]]) ||
       implementsConstructor(tpe, typeOf[Array[_]])
   }
 
-  def isMap(tpe: Type): Boolean =
+  @inline def isMap(tpe: Type): Boolean =
     implementsConstructor(tpe, typeOf[collection.Map[_, _]])
 
-  def isSortedMap(tpe: Type): Boolean =
+  @inline def isSortedMap(tpe: Type): Boolean =
     implementsConstructor(tpe, typeOf[collection.SortedMap[_, _]])
 
-  def typeArgument(tpe: Type, index: Int): Type =
-    tpe.typeArgs(index)
-
-  def defaultName[T : TypeTag]: String =
-    defaultName(typeOf[T])
-
-  /**
-   * Default field name for a given type to camelCase the type name.
-   * @param tpe the type
-   * @return
-   */
-  def defaultName(tpe: Type): String = {
-    val base = tpe.typeSymbol.name.decodedName.toString
-
-    s"${base.head.toLower}${base.tail}" // make first letter lowercase: Base
+  /** Build a TypeTag[T] from a ru.Type, using the given mirror. */
+  def typeTagFromType[T](tpe: ru.Type)(implicit m: ru.Mirror = ru.runtimeMirror(getClass.getClassLoader)): ru.TypeTag[T] = {
+    val tc = new scala.reflect.api.TypeCreator {
+      def apply[U <: scala.reflect.api.Universe with Singleton](mu: scala.reflect.api.Mirror[U]): U#Type =
+        if (mu eq m) tpe.asInstanceOf[U#Type]
+        else throw new IllegalArgumentException(s"Type tag defined in $m cannot be migrated to other mirrors.")
+    }
+    ru.TypeTag[T](m, tc)
   }
 
-  def classTag[T](tpe: Type): ClassTag[T] = {
-    implicit val m: ru.Mirror = ru.runtimeMirror(getClass.getClassLoader)
-
-    ClassTag(m.runtimeClass(tpe.erasure)).asInstanceOf[ClassTag[T]]
+  def classTagFromTypeErased[T](tpe: ru.Type)(implicit m: ru.Mirror = ru.runtimeMirror(getClass.getClassLoader)): ClassTag[T] = {
+    val cls = m.runtimeClass(tpe.erasure)
+    ClassTag[T](cls) // note: generic args erased
   }
 }

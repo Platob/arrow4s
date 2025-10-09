@@ -2,9 +2,9 @@ package io.github.platob.arrow4s.core.arrays
 
 import io.github.platob.arrow4s.core.arrays.ArrowArraySuite.TestRecord
 import io.github.platob.arrow4s.core.arrays.primitive.IntegralArray.IntArray
+import io.github.platob.arrow4s.core.codec.ValueCodec
 import io.github.platob.arrow4s.core.values.UInt
 import munit.FunSuite
-import org.apache.arrow.vector.IntVector
 
 class ArrowArraySuite extends FunSuite {
   val values: Seq[Int] = 0 until 5
@@ -14,9 +14,9 @@ class ArrowArraySuite extends FunSuite {
 
     // Assert is instance IntegralArray
     assert(array.isInstanceOf[IntArray])
-    assert(array.as[Int].isInstanceOf[IntArray])
-    assert(array.as[Long].isInstanceOf[LogicalArray[IntArray, IntVector, Int, Long]])
-    assertEquals(array.as[Long], values.map(_.toLong))
+    assert(array.asUnsafe[Int].isInstanceOf[IntArray])
+    assert(array.asUnsafe[Long].isLogical)
+    assertEquals(array.asUnsafe[Long], values.map(_.toLong))
   }
 
   test("ArrowArray.make String array") {
@@ -33,7 +33,7 @@ class ArrowArraySuite extends FunSuite {
   }
 
   test("ArrowArray.as should cast to optional" ) {
-    val array = ArrowArray(values:_*).as[Option[Int]]
+    val array = ArrowArray(values:_*).asUnsafe[Option[Int]]
 
     assertEquals(array, values.map(Option.apply))
   }
@@ -43,10 +43,10 @@ class ArrowArraySuite extends FunSuite {
     val array = ArrowArray(values:_*)
 
     assertEquals(
-      array.as[Option[Long]], values.map(v => Option(v.toLong))
+      array.asUnsafe[Option[Long]], values.map(v => Option(v.toLong))
     )
     assertEquals(
-      array.as[Option[Double]], values.map(v => Option(v.toDouble))
+      array.asUnsafe[Option[Double]], values.map(v => Option(v.toDouble))
     )
   }
 
@@ -56,18 +56,18 @@ class ArrowArraySuite extends FunSuite {
 
     assert(array.as[Int].isInstanceOf[IntArray])
     assertEquals(array.nullCount, 1)
-    assertEquals(array.as[Int], values.map(_.getOrElse(null)))
-    assertEquals(array.as[Long], values.map(v => v.map(_.toLong).getOrElse(null)))
-    assertEquals(array.as[Double], values.map(v => v.map(_.toDouble).getOrElse(null)))
+    assertEquals(array.as[Int], values.map(_.getOrElse(0)))
+    assertEquals(array.as[Long], values.map(v => v.map(_.toLong).getOrElse(0)))
+    assertEquals(array.as[Double], values.map(v => v.map(_.toDouble).getOrElse(0)))
   }
 
   test("ArrowArray.slice should return sub-array") {
     val array = ArrowArray(values:_*)
 
-    val slice = array.slice(1, 4)
+    val slice = array.arrowSlice(1, 4)
 
     assertEquals(slice.length, 3)
-    assertEquals(slice.as[Int], values.slice(1, 4))
+    assertEquals(slice.asUnsafe[Int], values.slice(1, 4))
   }
 
   test("ArrowArray.make list array") {
@@ -79,18 +79,18 @@ class ArrowArraySuite extends FunSuite {
     )
     val array = ArrowArray(listValues:_*)
 
-    assertEquals(array.as[Seq[Int]], listValues)
+    assertEquals(array.asUnsafe[Seq[Int]], listValues)
   }
 
   test("ArrowArray.make case class array") {
     val records = (1 to 5).map(i => TestRecord(i, s"str_$i", if (i % 2 == 0) Some(i.toDouble) else None))
     val array = ArrowArray(records:_*)
-    val tuples = array.as[(Int, String, Option[Double])]
+    val tuples = array.asUnsafe[(Int, String, Option[Double])]
     val first = array.get(0)
 
-    assertEquals(array.child("a").as[Int], records.map(_.a))
-    assertEquals(array.child("b").as[String], records.map(_.b))
-    assertEquals(array.child("c").as[Option[Double]], records.map(_.c))
+    assertEquals(array.child("a").asUnsafe[Int], records.map(_.a))
+    assertEquals(array.child("b").asUnsafe[String], records.map(_.b))
+    assertEquals(array.child("c").asUnsafe[Option[Double]], records.map(_.c))
     assertEquals(first, records.head)
     assertEquals(array, records)
     assertEquals(tuples, records.map(r => (r.a, r.b, r.c)))
@@ -103,16 +103,16 @@ class ArrowArraySuite extends FunSuite {
       Map(),
       Map("d" -> 4, "e" -> 5, "f" -> 6)
     )
-    val array = ArrowArray(mapValues:_*)
+    val array = ArrowArray(mapValues:_*)(ValueCodec.mapCodec[String, Int])
 
-    assertEquals(array.as[Map[String, Int]], mapValues)
+    assertEquals(array, mapValues)
 
     // Test array map mutations
 //    array.set(2, Map("x" -> 10, "y" -> 20))
     array.append(Map("z" -> 30))
 
     val newValues = mapValues :+ Map("z" -> 30)
-    assertEquals(array.as[Map[String, Int]], newValues)
+    assertEquals(array.asUnsafe[Map[String, Int]], newValues)
   }
 
   test("ArrowArray mutable operations") {

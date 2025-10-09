@@ -1,238 +1,110 @@
 package io.github.platob.arrow4s.core.arrays.nested
 
-import io.github.platob.arrow4s.core.arrays.{ArraySlice, ArrowArray, LogicalArray}
-import io.github.platob.arrow4s.core.reflection.ReflectUtils
+import io.github.platob.arrow4s.core.arrays.{ArraySlice, ArrowArray}
+import io.github.platob.arrow4s.core.arrays.traits.TArrowArray
+import io.github.platob.arrow4s.core.codec.ValueCodec
+import io.github.platob.arrow4s.core.codec.nested.ListCodec
 import org.apache.arrow.vector.complex.ListVector
+import org.apache.arrow.vector.types.pojo.ArrowType.ArrowTypeID
 
-import scala.reflect.runtime.{universe => ru}
-
-class ListArray[V <: ListVector, ElementType](
-  val scalaType: ru.Type,
-  val vector: V,
-  val elements: ArrowArray.Typed[_, ElementType]
-) extends NestedArray.Typed[V, ArrowArray.Typed[_, ElementType]] {
-  override def children: Seq[ArrowArray.Typed[_, ElementType]] = Seq(elements)
-
-  /**
-   * Get the start and end indices of the elements for the given index.
-   * @param index the index of the list element
-   * @return
-   */
-  @inline def getStartEnd(index: Int): (Int, Int) = {
-    (
-      vector.getElementStartIndex(index),
-      vector.getElementEndIndex(index)
-    )
-  }
-
-  override def innerAs(tpe: ru.Type): ArrowArray.Typed[V, _] = {
-    if (!ReflectUtils.isIterable(tpe)) {
-      throw new IllegalArgumentException(s"Type $tpe is not a iterable type")
-    }
-
-    val elemType = ReflectUtils.typeArgument(tpe, 0)
-
-    elements.as(elemType) match {
-      case casted: ArrowArray.Typed[_, e] =>
-        // Check the collection type conversions
-        val targetCollectionType = tpe.typeConstructor
-
-        if (targetCollectionType =:= ru.typeOf[Array[_]].typeConstructor) {
-          val getter = (arr: LogicalArray[ListArray[V, ElementType], V, ArrowArray.Typed[_, ElementType], Array[e]], index: Int) => {
-            val (start, end) = (
-              arr.vector.getElementStartIndex(index),
-              arr.vector.getElementEndIndex(index)
-            )
-
-            casted.slice(start = start, end = end).toArray
-          }
-
-          val setter = (arr: LogicalArray[ListArray[V, ElementType], V, ArrowArray.Typed[_, ElementType], Array[e]], index: Int, value: Array[e]) => {
-            arr.vector.startNewValue(index)
-
-            casted.setValues(index = arr.vector.getElementStartIndex(index), value)
-
-            arr.vector.endValue(index, value.length)
-
-            ()
-          }
-
-          new LogicalArray[ListArray[V, ElementType], V, ArrowArray.Typed[_, ElementType], Array[e]](
-            scalaType = tpe,
-            inner = this,
-            getter = getter,
-            setter = setter,
-            children = Seq(casted)
-          )
-        }
-        else if (targetCollectionType =:= ru.typeOf[collection.immutable.Seq[_]].typeConstructor) {
-          val getter = (
-            arr: LogicalArray[ListArray[V, ElementType], V, ArrowArray.Typed[_, ElementType], collection.immutable.Seq[e]],
-            index: Int
-          ) => {
-            val (start, end) = (
-              arr.vector.getElementStartIndex(index),
-              arr.vector.getElementEndIndex(index)
-            )
-
-            casted.slice(start = start, end = end)
-          }
-
-          val setter = (
-            arr: LogicalArray[ListArray[V, ElementType], V, ArrowArray.Typed[_, ElementType], collection.immutable.Seq[e]],
-            index: Int, value: Iterable[e]
-          ) => {
-            arr.vector.startNewValue(index)
-
-            casted.setValues(index = arr.vector.getElementStartIndex(index), value)
-
-            arr.vector.endValue(index, value.size)
-
-            ()
-          }
-
-          new LogicalArray[ListArray[V, ElementType], V, ArrowArray.Typed[_, ElementType], collection.immutable.Seq[e]](
-            scalaType = tpe,
-            inner = this,
-            getter = getter,
-            setter = setter,
-            children = Seq(casted)
-          )
-        }
-        else if (targetCollectionType =:= ru.typeOf[collection.immutable.List[_]].typeConstructor) {
-          val getter = (
-            arr: LogicalArray[ListArray[V, ElementType], V, ArrowArray.Typed[_, ElementType], collection.immutable.List[e]],
-            index: Int
-          ) => {
-            val (start, end) = (
-              arr.vector.getElementStartIndex(index),
-              arr.vector.getElementEndIndex(index)
-            )
-
-            collection.immutable.List.from(casted.slice(start = start, end = end))
-          }
-
-          val setter = (
-            arr: LogicalArray[ListArray[V, ElementType], V, ArrowArray.Typed[_, ElementType], collection.immutable.List[e]],
-            index: Int, value: Iterable[e]
-          ) => {
-            arr.vector.startNewValue(index)
-
-            casted.setValues(index = arr.vector.getElementStartIndex(index), value)
-
-            arr.vector.endValue(index, value.size)
-
-            ()
-          }
-
-          new LogicalArray[ListArray[V, ElementType], V, ArrowArray.Typed[_, ElementType], collection.immutable.List[e]](
-            scalaType = tpe,
-            inner = this,
-            getter = getter,
-            setter = setter,
-            children = Seq(casted)
-          )
-        }
-        else if (targetCollectionType =:= ru.typeOf[collection.Seq[_]].typeConstructor) {
-          val getter = (
-            arr: LogicalArray[ListArray[V, ElementType], V, ArrowArray.Typed[_, ElementType], collection.Seq[e]],
-            index: Int
-          ) => {
-            val (start, end) = (
-              arr.vector.getElementStartIndex(index),
-              arr.vector.getElementEndIndex(index)
-            )
-
-            collection.Seq.from(casted.slice(start = start, end = end))
-          }
-
-          val setter = (
-            arr: LogicalArray[ListArray[V, ElementType], V, ArrowArray.Typed[_, ElementType], collection.Seq[e]],
-            index: Int, value: Iterable[e]
-          ) => {
-            arr.vector.startNewValue(index)
-
-            casted.setValues(index = arr.vector.getElementStartIndex(index), value)
-
-            arr.vector.endValue(index, value.size)
-
-            ()
-          }
-
-          new LogicalArray[ListArray[V, ElementType], V, ArrowArray.Typed[_, ElementType], collection.Seq[e]](
-            scalaType = tpe,
-            inner = this,
-            getter = getter,
-            setter = setter,
-            children = Seq(casted)
-          )
-        }
-        else {
-          throw new IllegalArgumentException(s"Unsupported collection type: $targetCollectionType")
-        }
-    }
-  }
-
-  override def get(index: Int): ArraySlice.Typed[_, ElementType] = {
+class ListArray[Item](
+  vector: ListVector,
+  elements: ArrowArray.Typed[Item, _, _]
+) extends ListArray.Base[Item, ArrowArray[Item], ListVector, ListArray[Item]](vector, elements) {
+  override def get(index: Int): ArraySlice.Typed[Item, _, _] = {
     val (start, end) = getStartEnd(index)
 
-    val items = elements.slice(start = start, end = end)
-
-    items
+    elements.arrowSlice(start = start, end = end)
   }
 
-  @inline def getArray(index: Int): Array[ElementType] = {
-    val (start, end) = getStartEnd(index)
+  override def set(index: Int, value: ArrowArray[Item]): this.type = {
+    val start = getStartEnd(index)._1
 
-    elements.toArray(start, end - start)
-  }
+    this.startNewValue(index)
 
-  @inline def getIterable(index: Int): Iterable[ElementType] = {
-    getArray(index)
-  }
+    var i = 0
+    value.foreach(v => {
+      elements.set(start + i, v)
+      i += 1
+    })
 
-  override def setNull(index: Int): this.type = {
-    this.vector.setNull(index)
-    this
-  }
-
-  override def set(index: Int, value: ArrowArray.Typed[_, ElementType]): this.type = {
-    setIterable(index, value)
-  }
-
-  @inline def setArray(index: Int, value: Array[ElementType]): this.type = {
-    vector.startNewValue(index)
-
-    elements.setValues(index = vector.getElementStartIndex(index), value)
-
-    vector.endValue(index, value.length)
+    this.endValue(index, i)
 
     this
-  }
-
-  @inline def setIterable(index: Int, value: Iterable[ElementType]): this.type = {
-    vector.startNewValue(index)
-
-    elements.setValues(index = vector.getElementStartIndex(index), value)
-
-    vector.endValue(index, value.size)
-
-    this
-  }
-
-  override def toArray(start: Int, end: Int): Array[ArrowArray.Typed[_, ElementType]] = {
-    (start until end).map(get).toArray
   }
 }
 
 object ListArray {
-  def default(vector: ListVector): ListArray[ListVector, Any] = {
-    val elements = ArrowArray.from(vector.getDataVector).asInstanceOf[ArrowArray.Typed[_, Any]]
+  trait TListArray extends TArrowArray {
 
-    new ListArray[ListVector, Any](
-      scalaType = ru.typeOf[Iterable[Any]],
-      vector = vector,
-      elements = elements
-    )
+  }
+
+  abstract class Base[
+    Item,
+    Value <: ArrowArray[Item],
+    ArrowVector <: ListVector,
+    Arr <: Base[Item, Value, ArrowVector, Arr]
+  ](vector: ArrowVector, val elements: ArrowArray.Typed[Item, _, _])
+    extends NestedArray.Typed[Value, ArrowVector, Arr](vector) with TListArray {
+    override def children: Seq[ArrowArray.Typed[Item, _, _]] = Seq(elements)
+
+    /**
+     * Get the start and end indices of the elements for the given index.
+     * @param index the index of the list element
+     * @return
+     */
+    @inline def getStartEnd(index: Int): (Int, Int) = {
+      (
+        vector.getElementStartIndex(index),
+        vector.getElementEndIndex(index)
+      )
+    }
+
+    def startNewValue(index: Int): this.type = {
+      vector.startNewValue(index)
+      this
+    }
+
+    def endValue(index: Int, count: Int): this.type = {
+      vector.endValue(index, count)
+      this
+    }
+
+    override def setNull(index: Int): this.type = {
+      this.vector.setNull(index)
+      this
+    }
+
+    override def innerAs(codec: ValueCodec[_]): ArrowArray[_] = {
+      codec.arrowTypeId match {
+        case ArrowTypeID.List =>
+          // Cast the elements to the target type
+          val castedElements = elements.asUnsafe(codec.childAt(0))
+
+          castedElements match {
+            case e: ArrowArray.Typed[t, _, _] @unchecked =>
+              val listCodec = codec.asInstanceOf[ListCodec[t, _]]
+              val base = new ListArray[t](
+                vector = this.vector,
+                elements = e
+              )
+
+              listCodec.arrayAsCollection(base = base)
+            case _ =>
+              throw new IllegalStateException(s"Expected elements to be of type ArrowArray.Typed, but got: ${castedElements.getClass}")
+          }
+        case _ =>
+          elements.asUnsafe(codec)
+      }
+    }
+  }
+
+  def default(vector: ListVector): ListArray[_] = {
+    val elements = ArrowArray.from(vector.getDataVector)
+
+    elements match {
+      case e: ArrowArray.Typed[t, _, _] @unchecked =>
+        new ListArray[t](vector = vector, elements = e)
+    }
   }
 }

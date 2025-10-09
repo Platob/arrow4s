@@ -1,20 +1,18 @@
 package io.github.platob.arrow4s.core
 package arrays.primitive
 
-import extensions.TypeExtension
+import io.github.platob.arrow4s.core.codec.ValueCodec
 import org.apache.arrow.vector.{FieldVector, VarBinaryVector, VarCharVector}
 
 import java.nio.charset.Charset
-import scala.reflect.runtime.{universe => ru}
 
-abstract class BinaryArray[V <: FieldVector, T : TypeExtension] extends PrimitiveArray.Typed[V, T] {
+abstract class BinaryArray[Value : ValueCodec, ArrowVector <: FieldVector, Arr <: BinaryArray[Value, ArrowVector, Arr]](vector: ArrowVector)
+  extends PrimitiveArray.Typed[Value, ArrowVector, Arr](vector) {
 
 }
 
 object BinaryArray {
-  class VarBinaryArray(override val vector: VarBinaryVector) extends BinaryArray[VarBinaryVector, Array[Byte]] {
-    override val scalaType: ru.Type = ru.typeOf[Array[Byte]].dealias
-
+  class VarBinaryArray(vector: VarBinaryVector) extends BinaryArray[Array[Byte], VarBinaryVector, VarBinaryArray](vector) {
     // Accessors
     override def get(index: Int): Array[Byte] = {
       vector.get(index)
@@ -25,18 +23,26 @@ object BinaryArray {
       vector.setSafe(index, value)
       this
     }
+
+    override def setPrimitive[VC](index: Int, value: VC)(implicit codec: ValueCodec[VC]): this.type = {
+      set(index, codec.toBytes(value))
+    }
   }
 
-  class UTF8Array(override val vector: VarCharVector) extends BinaryArray[VarCharVector, String] {
+  class UTF8Array(vector: VarCharVector) extends BinaryArray[String, VarCharVector, UTF8Array](vector) {
     private val charset: Charset = Charset.forName("UTF-8")
-
-    override val scalaType: ru.Type = ru.typeOf[String].dealias
 
     // Accessors
     override def get(index: Int): String = {
       val bytes = vector.get(index)
 
-      new String(bytes, charset)
+      try {
+        new String(bytes, charset)
+      } catch {
+        case _: NullPointerException =>
+//          throw new IllegalStateException(s"Value at index $index is null")
+          "" // Return empty string if null
+      }
     }
 
     // Mutators
@@ -44,6 +50,10 @@ object BinaryArray {
       val b = value.getBytes(charset)
       vector.setSafe(index, b)
       this
+    }
+
+    override def setPrimitive[VC](index: Int, value: VC)(implicit codec: ValueCodec[VC]): this.type = {
+      set(index, codec.toString(value))
     }
   }
 }

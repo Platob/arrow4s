@@ -1,7 +1,8 @@
 package io.github.platob.arrow4s.core.arrays.nested
 
 import io.github.platob.arrow4s.core.arrays.{ArrowArray, LogicalArray}
-import io.github.platob.arrow4s.core.extensions.FastCtorCache
+import io.github.platob.arrow4s.core.codec.ValueCodec
+import io.github.platob.arrow4s.core.codec.nested.Tuple2Codec
 import io.github.platob.arrow4s.core.types.ArrowField
 import org.apache.arrow.memory.BufferAllocator
 import org.apache.arrow.vector.complex.StructVector
@@ -10,13 +11,11 @@ import org.apache.arrow.vector.util.TransferPair
 import org.apache.arrow.vector.{FieldVector, VectorSchemaRoot}
 
 import scala.collection.convert.ImplicitConversions.`iterable AsScalaIterable`
-import scala.reflect.runtime.{universe => ru}
 
-case class StructArray(
+class StructArray[R](
   vector: StructVector,
-  children: Seq[ArrowArray.Typed[_, _]],
-) extends NestedArray.Typed[StructVector, ArrowRecord] {
-  override val scalaType: ru.Type = ru.typeOf[ArrowRecord]
+  val children: Seq[ArrowArray.Typed[_, _, _]]
+) extends NestedArray.Typed[R, StructVector, StructArray[R]](vector) {
 
   override def setValueCount(count: Int): this.type = {
     super.setValueCount(count)
@@ -26,34 +25,42 @@ case class StructArray(
   }
 
   // Accessors
-  override def get(index: Int): ArrowRecord = {
-    ArrowRecord.view(array = this, index = index)
-  }
+  override def get(index: Int): R = {
+//    ArrowRecord.view(array = this, index = index)
+    val elements = Array.tabulate(children.length)(i => {
+      val child = children(i)
+      child.get(index)
+    })
 
-  @inline def unsafeGetTuple[T1, T2](index: Int): (T1, T2) = {
-    (
-      childAt(0).unsafeGet[T1](index),
-      childAt(1).unsafeGet[T2](index)
-    )
-  }
-
-  @inline def unsafeGetTuples[T1, T2](start: Int, end: Int): IndexedSeq[(T1, T2)] = {
-    (start until end).map(i => unsafeGetTuple[T1, T2](i))
+    this.codec.fromElements(elements)
   }
 
   // Mutators
+  /**
+   * Marks the struct at the given index as non-null.
+   * @param index the index to mark as non-null
+   * @return
+   */
+  @inline def setIndexDefined(index: Int): this.type = {
+    vector.setIndexDefined(index)
+
+    this
+  }
+
   override def setNull(index: Int): this.type = {
     vector.setNull(index)
 
     this
   }
 
-  override def set(index: Int, value: ArrowRecord): this.type = {
-    vector.setIndexDefined(index) // mark the struct itself non-null
+  override def set(index: Int, value: R): this.type = {
+    setIndexDefined(index) // mark the struct itself non-null
 
     var i = 0
-    value.toArray.foreach(v => {
-      val child = children(i)
+    val elements = this.codec.elements(value)
+
+    elements.foreach(v => {
+      val child = childAt(i)
       child.unsafeSet(index, v)
       i += 1
     })
@@ -61,83 +68,35 @@ case class StructArray(
     this
   }
 
-  @inline def unsafeSetTuple[T1, T2](index: Int, value: (T1, T2)): this.type = {
-    vector.setIndexDefined(index) // mark the struct itself non-null
-
-    childAt(0).unsafeSet(index, value._1)
-    childAt(1).unsafeSet(index, value._2)
-
-    this
-  }
-
-  @inline def unsafeSetTuples[T1, T2](start: Int, values: Iterable[(T1, T2)]): this.type = {
-    var i = 0
-    values.foreach(v => {
-      unsafeSetTuple[T1, T2](start + i, v)
-      i += 1
-    })
-
-    this
-  }
-
-  override def innerAs(tpe: ru.Type): LogicalArray[StructArray, StructVector, ArrowRecord, AnyRef] = {
-    val codec = FastCtorCache.codecFor(tpe)
-
+  override def innerAs(codec: ValueCodec[_]): ArrowArray[_] = {
     val casted =
-      if (codec.tuple) {
-        codec.fields.zipWithIndex.map {
+      if (codec.isTuple) {
+        codec.children.zipWithIndex.map {
           case (field, idx) =>
             val child = this.children(idx)
             // Cast child array to the expected type
-            child.as(field.tpe)
+            child.asUnsafe(field)
         }
       } else {
-        codec.fields.map(field => {
-          val child = this.child(name = field.name)
+        codec.arrowChildren.map(fieldCodec => {
+          val child = this.child(name = fieldCodec.field.getName)
 
           // Cast child array to the expected type
-          child.as(field.tpe)
+          child.asUnsafe(fieldCodec.codec)
         })
       }
 
-    val getter = (arr: LogicalArray[StructArray, StructVector, ArrowRecord, _], index: Int) => {
-      val values = arr.children.map(child => {
-        val value = child.get(index)
-
-        value
-      })
-
-      codec.ctor.invokeWithArguments(values: _*) // returns the case class instance
+    codec match {
+      case c: ValueCodec[s] @unchecked =>
+        LogicalArray.struct[R, s](this, c, casted)
     }
-
-    val setter = (arr: LogicalArray[StructArray, StructVector, ArrowRecord, _], index: Int, value: Any) => {
-      arr.vector.setIndexDefined(index) // mark the struct itself non-null
-
-      // explode the Product with zero iterator churn
-      val product = value.asInstanceOf[Product]
-      var i = 0
-
-      while (i < codec.fields.size) {
-        val child = arr.children(i)
-        child.unsafeSet(index, product.productElement(i))
-        i += 1
-      }
-    }
-
-    new LogicalArray[StructArray, StructVector, ArrowRecord, AnyRef](
-      scalaType = tpe,
-      inner = this,
-      getter = getter,
-      setter = setter,
-      children = casted,
-    )
   }
 
   def toRoot: VectorSchemaRoot = StructArray.toStructRoot(vector)
 }
 
 object StructArray {
-  def toStructVector(root: VectorSchemaRoot, fieldName: String): StructVector = {
+  private def toStructVector(root: VectorSchemaRoot, fieldName: String): StructVector = {
     val field = ArrowField.build(
       name = fieldName,
       at = ArrowType.Struct.INSTANCE,
@@ -150,7 +109,7 @@ object StructArray {
   }
 
   /** Zero-copy *move*: root -> StructVector (buffers transferred, not duplicated). */
-  def toStructVector(root: VectorSchemaRoot, structField: Field): StructVector = {
+  private def toStructVector(root: VectorSchemaRoot, structField: Field): StructVector = {
     // pull allocator from a column in the root (since root#getAllocator may not exist)
     val rootFieldVectors = root.getFieldVectors
     require(!rootFieldVectors.isEmpty, "VectorSchemaRoot has no columns; cannot pack into a struct")
@@ -190,23 +149,48 @@ object StructArray {
   }
 
   /** Zero-copy share: StructVector -> VectorSchemaRoot (children reused as-is). */
-  def toStructRoot(struct: StructVector): VectorSchemaRoot = {
+  private def toStructRoot(struct: StructVector): VectorSchemaRoot = {
     val children: java.util.List[FieldVector] = struct.getChildrenFromFields
     val schema   = new Schema(struct.getField.getChildren)
     val root     = new VectorSchemaRoot(schema, children, struct.getValueCount)
     root
   }
 
-  def default(root: VectorSchemaRoot): StructArray = {
+  def default(root: VectorSchemaRoot): StructArray[_] = {
     val structVector = toStructVector(root, fieldName = "root")
 
     default(structVector)
   }
 
-  def default(structVector: StructVector): StructArray = {
+  def default(structVector: StructVector): StructArray[_] = {
     new StructArray(
       vector = structVector,
-      children = structVector.getChildrenFromFields.toSeq.map(ArrowArray.from)
+      children = structVector.getChildrenFromFields.toList.map(ArrowArray.from)
     )
+  }
+
+  def tuple2[T1, T2](
+    vector: StructVector,
+    t1: ArrowArray.Typed[T1, _, _],
+    t2: ArrowArray.Typed[T2, _, _]
+  ): StructArray[(T1, T2)] = {
+    require(vector.getChildrenFromFields.size() > 1, "StructVector must have at least two children")
+
+    new StructArray[(T1, T2)](vector = vector, children = Seq(t1, t2)) {
+      override lazy val codec: ValueCodec[(T1, T2)] = Tuple2Codec
+        .fromCodecs[T1, T2](t1.codec, t2.codec, arrowField = Some(vector.getField))
+    }
+  }
+
+  def tuple2(vector: StructVector): StructArray[(_, _)] = {
+    require(vector.getChildrenFromFields.size() > 1, "StructVector must have at least two children")
+
+    val t1 = ArrowArray.from(vector.getChildByOrdinal(0))
+    val t2 = ArrowArray.from(vector.getChildByOrdinal(1))
+
+    (t1, t2) match {
+      case (a1: ArrowArray.Typed[t1, _, _], a2: ArrowArray.Typed[t2, _, _]) =>
+        tuple2[t1, t2](vector, a1, a2).asInstanceOf[StructArray[(_, _)]]
+    }
   }
 }

@@ -1,71 +1,83 @@
 package io.github.platob.arrow4s.core.arrays.nested
 
 import io.github.platob.arrow4s.core.arrays.{ArrowArray, LogicalArray}
+import io.github.platob.arrow4s.core.codec.ValueCodec
 import io.github.platob.arrow4s.core.reflection.ReflectUtils
-import org.apache.arrow.vector.complex.MapVector
+import org.apache.arrow.vector.complex.{MapVector, StructVector}
 
 import scala.reflect.runtime.{universe => ru}
 
-class MapArray(
+class MapArray[K, V](
   vector: MapVector,
-  elements: StructArray
-) extends ListArray[MapVector, ArrowRecord](
-  scalaType = ru.typeOf[Iterable[ArrowRecord]],
-  vector = vector,
-  elements = elements
-) {
-  def keyArray: ArrowArray.Typed[_, _] = elements.childAt(0)
+  elements: StructArray[(K, V)]
+) extends ListArray.Base[
+  (K, V), ArrowArray[(K, V)], MapVector, MapArray[K, V]
+](vector = vector, elements = elements) {
+  def keyArray: ArrowArray[K] = elements.childAt(0).asInstanceOf[ArrowArray[K]]
 
-  def valueArray: ArrowArray.Typed[_, _] = elements.childAt(1)
+  def valueArray: ArrowArray[V] = elements.childAt(1).asInstanceOf[ArrowArray[V]]
 
-  override def innerAs(tpe: ru.Type): ArrowArray.Typed[MapVector, _] = {
-    if (!ReflectUtils.isMap(tpe)) {
-      // Fallback to ListArray behavior
-      super.innerAs(tpe)
+  override def get(index: Int): ArrowArray[(K, V)] = {
+    val (start, end) = getStartEnd(index)
+
+    elements.arrowSlice(start = start, end = end)
+  }
+
+  override def set(index: Int, value: ArrowArray[(K, V)]): this.type = {
+    val start = getStartEnd(index)._1
+
+    this.startNewValue(index)
+
+    var i = 0
+    value.foreach { v =>
+      val (key, value) = v
+      keyArray.set(start + i, key)
+      valueArray.set(start + i, value)
+      i += 1
     }
 
-    val (keyType, valueType) = (ReflectUtils.typeArgument(tpe, 0), ReflectUtils.typeArgument(tpe, 1))
+    this.endValue(index, i)
 
-    val castedKeys = keyArray.as(keyType)
-    val castedValues = valueArray.as(valueType)
+    this
+  }
+
+  override def innerAs(codec: ValueCodec[_]): ArrowArray[_] = {
+    if (!ReflectUtils.isMap(codec.tpe)) {
+      // Fallback to ListArray behavior
+      super.innerAs(codec)
+    }
+
+    val keyValue = codec.childAt(0)
+    val (keyType, valueType) = (keyValue.childAt(0), keyValue.childAt(1))
+
+    val castedKeys = keyArray.asUnsafe(keyType)
+    val castedValues = valueArray.asUnsafe(valueType)
 
     (castedKeys, castedValues) match {
-      case (k: ArrowArray.Typed[_, k2], v: ArrowArray.Typed[_, v2]) =>
+      case (k: ArrowArray.Typed[k2, _, _], v: ArrowArray.Typed[v2, _, _]) =>
         // Check the collection type conversions
-        val targetCollectionType = tpe.typeConstructor
-        val castedStruct = elements.copy(children = Seq(k, v))
+        val pairs = StructArray.tuple2[k2, v2](elements.vector, k, v)
+        val targetCollectionType = codec.tpe.typeConstructor
 
         if (targetCollectionType =:= ru.typeOf[collection.immutable.Map[_, _]].typeConstructor) {
-          val getter = (
-            arr: LogicalArray[MapArray, MapVector, ArrowArray.Typed[_, ArrowRecord], collection.immutable.Map[k2, v2]],
-            index: Int
-          ) => {
-            val keyValues = arr.childAt(0).asInstanceOf[StructArray]
-            val (start, end) = arr.inner.getStartEnd(index)
-            val kv = keyValues.unsafeGetTuples[k2, v2](start, end)
-            collection.immutable.Map(kv: _*)
+          type LM = LogicalArray.Map[K, V, k2, v2, collection.immutable.Map[k2, v2]]
+
+          val getter = (arr: LM, index: Int) => {
+            val tp = arr.getTuples(index)
+
+            tp.toMap
           }
 
-          val setter = (
-            arr: LogicalArray[MapArray, MapVector, ArrowArray.Typed[_, ArrowRecord], Map[k2, v2]],
-            index: Int, value: Map[k2, v2]
-          ) => {
-            arr.inner.vector.startNewValue(index)
-
-            val keyValues = arr.childAt(0).asInstanceOf[StructArray]
-            val start = arr.inner.getStartEnd(index)._1
-            keyValues.unsafeSetTuples[k2, v2](start, value)
-
-            arr.inner.vector.endValue(index, value.size)
-            ()
+          val setter = (arr: LM, index: Int, value: collection.immutable.Map[k2, v2]) => {
+            arr.setTuples(index = index, value)
           }
 
-          new LogicalArray[MapArray, MapVector, ArrowArray.Typed[_, ArrowRecord], Map[k2, v2]](
-            scalaType = tpe,
+          LogicalArray.map[K, V, k2, v2, collection.immutable.Map[k2, v2]](
             inner = this,
+            codec = codec.asInstanceOf[ValueCodec[collection.immutable.Map[k2, v2]]],
             getter = getter,
             setter = setter,
-            children = Seq(castedStruct)
+            pairs = pairs
           )
         }
         else {
@@ -76,14 +88,8 @@ class MapArray(
 }
 
 object MapArray {
-  def default(vector: MapVector): MapArray = {
-    val elements = ArrowArray
-      .from(vector.getDataVector)
-      .asInstanceOf[StructArray]
-
-    new MapArray(
-      vector = vector,
-      elements = elements
-    )
+  def default(vector: MapVector): MapArray[_, _] = {
+    val elements = StructArray.tuple2(vector.getDataVector.asInstanceOf[StructVector])
+    new MapArray(vector = vector, elements)
   }
 }

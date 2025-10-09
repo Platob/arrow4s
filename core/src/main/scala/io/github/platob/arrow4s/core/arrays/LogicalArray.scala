@@ -1,180 +1,262 @@
 package io.github.platob.arrow4s.core
 package arrays
 
+import io.github.platob.arrow4s.core.arrays.nested.{ListArray, MapArray, StructArray}
 import io.github.platob.arrow4s.core.arrays.primitive.PrimitiveArray
-import io.github.platob.arrow4s.core.reflection.ReflectUtils
+import io.github.platob.arrow4s.core.codec.ValueCodec
+import io.github.platob.arrow4s.core.values.ValueConverter
+import org.apache.arrow.vector.complex.{ListVector, MapVector, StructVector}
 import org.apache.arrow.vector.{FieldVector, ValueVector}
 
-import scala.reflect.ClassTag
-import scala.reflect.runtime.{universe => ru}
-
-class LogicalArray[
-  A <: ArrowArray.Typed[V, Inner],
-  V <: ValueVector,
-  Inner, Outer,
-](
-  val scalaType: ru.Type,
-  val inner: A,
-  val getter: (LogicalArray[A, V, Inner, Outer], Int) => Outer,
-  val setter: (LogicalArray[A, V, Inner, Outer], Int, Outer) => Unit,
-  val children: Seq[ArrowArray.Typed[_, _]]
-) extends ArrowArrayProxy.Typed[V, Inner, Outer] {
+trait LogicalArray[
+  ArrowVector <: ValueVector,
+  Inner, InArray <: ArrowArray.Typed[Inner, ArrowVector, InArray],
+  Outer, Arr <: LogicalArray[ArrowVector, Inner, InArray, Outer, Arr]
+] extends ArrowArrayProxy.Typed[ArrowVector, Inner, InArray, Outer, Arr] {
   override def isLogical: Boolean = true
-
-  implicit lazy val classTag: ClassTag[Outer] = ReflectUtils.classTag[Outer](scalaType)
-
-  override def get(index: Int): Outer = {
-    getter(this, index)
-  }
-
-  override def set(index: Int, value: Outer): this.type = {
-    setter(this, index, value)
-    this
-  }
-
-  override def toArray(start: Int, end: Int): Array[Outer] = {
-    (start until end).map(get).toArray
-  }
 }
 
 object LogicalArray {
-  def convertPrimitive[A <: PrimitiveArray.Typed[V, Inner], V <: FieldVector, Inner](
-    arr: A,
-    tpe: ru.Type
-  ): LogicalArray[A, V, Inner, _] = {
-    val ext = arr.typeExtension
+  class Optional[Inner, ArrowVector <: ValueVector, InArray <: ArrowArray.Typed[Inner, ArrowVector, InArray]](
+    val inner: InArray,
+    val codec: ValueCodec[Option[Inner]],
+  ) extends LogicalArray[
+    ArrowVector, Inner, InArray, Option[Inner], Optional[Inner, ArrowVector, InArray]
+  ] {
+    override def isOptional: Boolean = true
 
-    val result =
-      if (tpe =:= ru.typeOf[String]) {
-        instance[A, V, Inner, String](
-          arr,
-          ext.toString,
-          ext.fromString,
-          tpe
-        )
-      }
-      else if (tpe =:= ru.typeOf[Array[Byte]]) {
-        instance[A, V, Inner, Array[Byte]](
-          arr,
-          ext.toBytes,
-          ext.fromBytes,
-          tpe
-        )
-      }
-      else if (tpe =:= ru.typeOf[Byte]) {
-        instance[A, V, Inner, Byte](
-          arr,
-          ext.toByte,
-          ext.fromByte,
-          tpe
-        )
-      }
-      else if (tpe =:= ru.typeOf[Short]) {
-        instance[A, V, Inner, Short](
-          arr,
-          ext.toShort,
-          ext.fromShort,
-          tpe
-        )
-      }
-      else if (tpe =:= ru.typeOf[Char]) {
-        instance[A, V, Inner, Char](
-          arr,
-          ext.toChar,
-          ext.fromChar,
-          tpe
-        )
-      }
-      else if (tpe =:= ru.typeOf[Int]) {
-        instance[A, V, Inner, Int](
-          arr,
-          ext.toInt,
-          ext.fromInt,
-          tpe
-        )
-      }
-      else if (tpe =:= ru.typeOf[Long]) {
-        instance[A, V, Inner, Long](
-          arr,
-          ext.toLong,
-          ext.fromLong,
-          tpe
-        )
-      }
-      else if (tpe =:= ru.typeOf[Float]) {
-        instance[A, V, Inner, Float](
-          arr,
-          ext.toFloat,
-          ext.fromFloat,
-          tpe
-        )
-      }
-      else if (tpe =:= ru.typeOf[Double]) {
-        instance[A, V, Inner, Double](
-          arr,
-          ext.toDouble,
-          ext.fromDouble,
-          tpe
-        )
-      }
-      else if (tpe =:= ru.typeOf[java.math.BigInteger]) {
-        instance[A, V, Inner, java.math.BigInteger](
-          arr,
-          ext.toBigInteger,
-          ext.fromBigInteger,
-          tpe
-        )
-      }
-      else if (tpe =:= ru.typeOf[java.math.BigDecimal]) {
-        instance[A, V, Inner, java.math.BigDecimal](
-          arr,
-          ext.toBigDecimal,
-          ext.fromBigDecimal,
-          tpe
-        )
-      }
-      else if (tpe =:= ru.typeOf[Boolean]) {
-        instance[A, V, Inner, Boolean](
-          arr,
-          ext.toBoolean,
-          ext.fromBoolean,
-          tpe
-        )
-      }
-      else {
-        throw new IllegalArgumentException(s"Cannot convert primitive array of type ${arr.scalaType} to logical array of type $tpe")
-      }
+    override def children: Seq[ArrowArray[_]] = inner.children
 
-    result.asInstanceOf[LogicalArray[A, V, Inner, _]]
+    // Accessors
+    override def get(index: Int): Option[Inner] = {
+      if (inner.isNull(index)) {
+        None
+      } else {
+        Some(inner.get(index))
+      }
+    }
+
+    // Mutators
+    override def set(index: Int, value: Option[Inner]): this.type = {
+      value match {
+        case Some(v) =>
+          inner.set(index, v)
+        case None =>
+          inner.setNull(index)
+      }
+      this
+    }
   }
 
-  def instance[
-    A <: ArrowArray.Typed[V, Inner],
-    V <: ValueVector, Inner, Outer
-  ](
-    array: A,
-    toLogical: Inner => Outer,
-    toPhysical: Outer => Inner,
-    tpe: ru.Type,
-    childrenArrays: Seq[ArrowArray.Typed[_, _]] = Nil
-  ): LogicalArray[A, V, Inner, Outer] = {
-    val getter = (arr: LogicalArray[A, V, Inner, Outer], index: Int) => {
-      val innerValue = arr.inner.get(index)
-
-      toLogical(innerValue)
-    }
-    val setter = (arr: LogicalArray[A, V, Inner, Outer], index: Int, value: Outer) => {
-      val physicalValue = toPhysical(value)
-      arr.inner.set(index, physicalValue)
-      ()
+  class Converter[ArrowVector <: ValueVector, Inner, InArray <: ArrowArray.Typed[Inner, ArrowVector, InArray], Outer](
+    val inner: InArray,
+    val codec: ValueCodec[Outer],
+    val converter: ValueConverter[Inner, Outer],
+  ) extends LogicalArray[ArrowVector, Inner, InArray, Outer, Converter[ArrowVector, Inner, InArray, Outer]] {
+    override def children: Seq[ArrowArray.Typed[_, _, _]] = {
+      throw new UnsupportedOperationException("LogicalArray.Converter does not support children.")
     }
 
-    new LogicalArray[A, V, Inner, Outer](
-      scalaType = tpe,
+    // Accessors
+    override def get(index: Int): Outer = {
+      converter.decode(inner.get(index))
+    }
+
+    // Mutators
+    override def set(index: Int, value: Outer): this.type = {
+      val converted = converter.encode(value)
+      inner.set(index, converted)
+      this
+    }
+  }
+
+  class List[In, Out, Outer](
+    val inner: ListArray[In],
+    val codec: ValueCodec[Outer],
+    val getter: (List[In, Out, Outer], Int) => Outer,
+    val setter: (List[In, Out, Outer], Int, Outer) => Unit,
+    val elements: ArrowArray.Typed[Out, _, _],
+  ) extends LogicalArray[ListVector, ArrowArray[In], ListArray[In], Outer, List[In, Out, Outer]] {
+    override def children: Seq[ArrowArray.Typed[Out, _, _]] = Seq(elements)
+
+    def getStartEnd(index: Int): (Int, Int) = inner.getStartEnd(index)
+
+    override def get(index: Int): Outer = {
+      getter(this, index)
+    }
+
+    def getElements(index: Int): IndexedSeq[Out] = {
+      val (start, end) = getStartEnd(index)
+
+      val result = (start until end).map(elements.get)
+
+      result
+    }
+
+    override def set(index: Int, value: Outer): this.type = {
+      setter(this, index, value)
+      this
+    }
+
+    def setElements(index: Int, values: Iterable[Out]): Unit = {
+      inner.startNewValue(index)
+      // Get the start index for the new list entry
+      val start = inner.getStartEnd(index)._1
+
+      elements.setValues(index = start, values)
+
+      inner.endValue(index, values.size)
+    }
+  }
+
+  class Map[InKey, InValue, OutKey, OutValue, Outer](
+    val inner: MapArray[InKey, InValue],
+    val codec: ValueCodec[Outer],
+    val getter: (Map[InKey, InValue, OutKey, OutValue, Outer], Int) => Outer,
+    val setter: (Map[InKey, InValue, OutKey, OutValue, Outer], Int, Outer) => Unit,
+    val pairs: StructArray[(OutKey, OutValue)],
+  ) extends LogicalArray[
+    MapVector, ArrowArray[(InKey, InValue)], MapArray[InKey, InValue],
+    Outer, Map[InKey, InValue, OutKey, OutValue, Outer]
+  ] {
+    override def children: Seq[StructArray[(OutKey, OutValue)]] = Seq(pairs)
+
+    def getStartEnd(index: Int): (Int, Int) = inner.getStartEnd(index)
+
+    override def get(index: Int): Outer = {
+      getter(this, index)
+    }
+
+    def getTuples(index: Int): IndexedSeq[(OutKey, OutValue)] = {
+      val (start, end) = getStartEnd(index)
+
+      val result = (start until end).map(pairs.get)
+
+      result
+    }
+
+    override def set(index: Int, value: Outer): this.type = {
+      setter(this, index, value)
+      this
+    }
+
+    def setTuples(index: Int, values: Iterable[(OutKey, OutValue)]): Unit = {
+      inner.startNewValue(index)
+      // Get the start index for the new map entry
+      val start = inner.getStartEnd(index)._1
+
+      var i = 0
+      for ((k, v) <- values) {
+        val itemIndex = start + i
+
+        pairs.set(index = itemIndex, value = (k, v))
+
+        i += 1
+      }
+
+      inner.endValue(index, values.size)
+    }
+  }
+
+  class Struct[Inner, Outer](
+    val inner: StructArray[Inner],
+    val codec: ValueCodec[Outer],
+    val children: Seq[ArrowArray[_]],
+  ) extends LogicalArray[StructVector, Inner, StructArray[Inner], Outer, Struct[Inner, Outer]] {
+    override def get(index: Int): Outer = {
+      val values = children.map(_.get(index)).toArray
+
+      codec.fromElements(values)
+    }
+
+    override def set(index: Int, value: Outer): this.type = {
+      val elements = codec.elements(value)
+
+      elements.zipWithIndex.foreach { case (v, i) =>
+        val child = children(i)
+        child.unsafeSet(index, v)
+      }
+
+      inner.setIndexDefined(index) // mark the struct itself non-null
+
+      this
+    }
+  }
+
+  def optional[
+    Value, ArrowVector <: ValueVector, Arr <: ArrowArray.Typed[Value, ArrowVector, Arr]
+  ](arr: Arr, codec: ValueCodec[Option[Value]]): Optional[Value, ArrowVector, Arr] = {
+    new Optional[Value, ArrowVector, Arr](arr, codec)
+  }
+
+  def convertPrimitive[
+    Value, ArrowVector <: FieldVector, Arr <: PrimitiveArray.Typed[Value, ArrowVector, Arr]
+  ](arr: Arr, codec: ValueCodec[_]): Converter[ArrowVector, Value, Arr, _] = {
+    val converter = ValueConverter.create(from = arr.codec, to = codec)
+
+    converter match {
+      case vc: ValueConverter[v, t] @unchecked =>
+        val asIs = vc.asInstanceOf[ValueConverter[Value, t]]
+
+        LogicalArray.converter[Value, ArrowVector, Arr, t](
+          array = arr,
+          codec = codec.asInstanceOf[ValueCodec[t]],
+        )(converter = asIs)
+    }
+  }
+
+  def converter[Inner, ArrowVector <: ValueVector, InArray <: ArrowArray.Typed[Inner, ArrowVector, InArray], Outer](
+    array: InArray,
+    codec: ValueCodec[Outer],
+  )(implicit converter: ValueConverter[Inner, Outer]): Converter[ArrowVector, Inner, InArray, Outer] = {
+    new Converter[ArrowVector, Inner, InArray, Outer](
       inner = array,
+      codec = codec,
+      converter = converter
+    )
+  }
+
+  def list[In, Out, Outer](
+    inner: ListArray[In],
+    codec: ValueCodec[Outer],
+    getter: (List[In, Out, Outer], Int) => Outer,
+    setter: (List[In, Out, Outer], Int, Outer) => Unit,
+    elements: ArrowArray.Typed[Out, _, _],
+  ): List[In, Out, Outer] = {
+    new List[In, Out, Outer](
+      inner = inner,
+      codec = codec,
       getter = getter,
       setter = setter,
-      children = if (childrenArrays.nonEmpty) childrenArrays else array.children
+      elements = elements
+    )
+  }
+
+  def map[InKey, InValue, OutKey, OutValue, Outer](
+    inner: MapArray[InKey, InValue],
+    codec: ValueCodec[Outer],
+    getter: (Map[InKey, InValue, OutKey, OutValue, Outer], Int) => Outer,
+    setter: (Map[InKey, InValue, OutKey, OutValue, Outer], Int, Outer) => Unit,
+    pairs: StructArray[(OutKey, OutValue)],
+  ): Map[InKey, InValue, OutKey, OutValue, Outer] = {
+    new Map[InKey, InValue, OutKey, OutValue, Outer](
+      inner = inner,
+      codec = codec,
+      getter = getter,
+      setter = setter,
+      pairs = pairs
+    )
+  }
+
+  def struct[Inner, Outer](
+    array: StructArray[Inner],
+    codec: ValueCodec[Outer],
+    children: Seq[ArrowArray[_]],
+  ): Struct[Inner, Outer] = {
+    new Struct[Inner, Outer](
+      inner = array,
+      codec = codec,
+      children = children
     )
   }
 }

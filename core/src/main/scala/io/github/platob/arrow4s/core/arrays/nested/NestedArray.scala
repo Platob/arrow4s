@@ -21,10 +21,9 @@ object NestedArray {
   }
 
   abstract class Typed[Value, ArrowVector <: ValueVector, Arr <: Typed[Value, ArrowVector, Arr]](
-    val vector: ArrowVector
+    val vector: ArrowVector,
+    val codec: ValueCodec[Value]
   ) extends ArrowArray.Typed[Value, ArrowVector, Arr] with NestedArray[Value] {
-    lazy val codec: ValueCodec[Value] = ValueCodec
-      .fromField(arrowField = vector.getField)
-      .asInstanceOf[ValueCodec[Value]]
+
   }
 }

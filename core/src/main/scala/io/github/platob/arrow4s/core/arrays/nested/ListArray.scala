@@ -45,7 +45,10 @@ object ListArray {
     ArrowVector <: ListVector,
     Arr <: Base[Item, Value, ArrowVector, Arr]
   ](vector: ArrowVector, val elements: ArrowArray.Typed[Item, _, _])
-    extends NestedArray.Typed[Value, ArrowVector, Arr](vector) with TListArray {
+    extends NestedArray.Typed[Value, ArrowVector, Arr](
+      vector = vector,
+      codec = ValueCodec.fromField(arrowField = vector.getField).asInstanceOf[ValueCodec[Value]]
+    ) with TListArray {
     override def children: Seq[ArrowArray.Typed[Item, _, _]] = Seq(elements)
 
     /**

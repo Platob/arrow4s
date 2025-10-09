@@ -72,9 +72,10 @@ array == records
 import io.github.platob.arrow4s.io.ipc.IPCInput
 import io.github.platob.arrow4s.core.arrays.nested.ArrowRecord
 
-val ipc = IPCInput.file(filePath = path)
-
-val batches = ipc.batches(closeAtEnd = false).toList
+val batches = ipc.batches[(Int, Double)].toList
 val batch = batches.head
-val record: ArrowRecord = batch(0)
+val record = batch(0)
+
+assertEquals(batch.length, 5)
+assertEquals(record._1, 1)
 ```

@@ -99,6 +99,17 @@ object StructCodec {
     )
   }
 
+  def fromChildren(children: Seq[ValueCodec[_]], name: String, nullable: Boolean): StructCodec[_] = {
+    val arrowField = ArrowField.struct(
+      name = name,
+      children = children.map(_.arrowField),
+      nullable = nullable,
+      metadata = Some(Map("namespace" -> s"generated.$name"))
+    )
+
+    tuple(field = arrowField)
+  }
+
   def fromField(arrowField: Field): StructCodec[_] = tuple(field = arrowField)
 
   def tuple(field: Field): StructCodec[_] = {

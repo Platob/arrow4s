@@ -1,6 +1,5 @@
 package io.github.platob.arrow4s.io.ipc
 
-import io.github.platob.arrow4s.core.arrays.nested.ArrowRecord
 import munit.FunSuite
 
 class IPCInputTest extends FunSuite with IOFSSuite {
@@ -8,12 +7,11 @@ class IPCInputTest extends FunSuite with IOFSSuite {
     val path = loadResource("/ipc/test_file.arrow").toString
     val ipc = IPCInput.file(filePath = path)
 
-    val batches = ipc.batches(closeAtEnd = false).toList
+    val batches = ipc.batches[(Int, Double)].toList
     val batch = batches.head
     val record = batch(0)
 
     assertEquals(batch.length, 5)
-    assert(record.isInstanceOf[ArrowRecord])
-    assertEquals(record.get(0), 1)
+    assertEquals(record._1, 1)
   }
 }

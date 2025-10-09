@@ -2,7 +2,7 @@ package io.github.platob.arrow4s.core.arrays.nested
 
 import io.github.platob.arrow4s.core.arrays.{ArrowArray, LogicalArray}
 import io.github.platob.arrow4s.core.codec.ValueCodec
-import io.github.platob.arrow4s.core.codec.nested.Tuple2Codec
+import io.github.platob.arrow4s.core.codec.nested.{StructCodec, Tuple2Codec}
 import io.github.platob.arrow4s.core.types.ArrowField
 import org.apache.arrow.memory.BufferAllocator
 import org.apache.arrow.vector.complex.StructVector
@@ -14,8 +14,9 @@ import scala.collection.convert.ImplicitConversions.`iterable AsScalaIterable`
 
 class StructArray[R](
   vector: StructVector,
+  codec: ValueCodec[R],
   val children: Seq[ArrowArray.Typed[_, _, _]]
-) extends NestedArray.Typed[R, StructVector, StructArray[R]](vector) {
+) extends NestedArray.Typed[R, StructVector, StructArray[R]](vector, codec) {
 
   override def setValueCount(count: Int): this.type = {
     super.setValueCount(count)
@@ -156,17 +157,32 @@ object StructArray {
     root
   }
 
-  def default(root: VectorSchemaRoot): StructArray[_] = {
+  def from[T : ValueCodec](root: VectorSchemaRoot): StructArray[T] = {
     val structVector = toStructVector(root, fieldName = "root")
 
-    default(structVector)
+    from[T](structVector)
+  }
+
+  def from[T](structVector: StructVector)(implicit codec: ValueCodec[T]): StructArray[T] = {
+    new StructArray[T](
+      vector = structVector,
+      children = structVector.getChildrenFromFields.toList.map(ArrowArray.from),
+      codec = codec
+    )
   }
 
   def default(structVector: StructVector): StructArray[_] = {
-    new StructArray(
-      vector = structVector,
-      children = structVector.getChildrenFromFields.toList.map(ArrowArray.from)
-    )
+    val children = structVector.getChildrenFromFields.toList.map(ArrowArray.from)
+    val codec = StructCodec.fromChildren(children.map(_.codec), name = "struct", nullable = false)
+
+    codec match {
+      case c: ValueCodec[t] @unchecked =>
+        new StructArray[t](
+          vector = structVector,
+          children = children,
+          codec = c
+        )
+    }
   }
 
   def tuple2[T1, T2](
@@ -176,10 +192,9 @@ object StructArray {
   ): StructArray[(T1, T2)] = {
     require(vector.getChildrenFromFields.size() > 1, "StructVector must have at least two children")
 
-    new StructArray[(T1, T2)](vector = vector, children = Seq(t1, t2)) {
-      override lazy val codec: ValueCodec[(T1, T2)] = Tuple2Codec
-        .fromCodecs[T1, T2](t1.codec, t2.codec, arrowField = Some(vector.getField))
-    }
+    val codec = Tuple2Codec.fromCodecs[T1, T2](t1.codec, t2.codec, arrowField = Some(vector.getField))
+
+    new StructArray[(T1, T2)](vector = vector, children = Seq(t1, t2), codec = codec)
   }
 
   def tuple2(vector: StructVector): StructArray[(_, _)] = {

@@ -1,7 +1,7 @@
 package io.github.platob.arrow4s.io
 
 import io.github.platob.arrow4s.core.arrays.nested.{ArrowRecord, StructArray}
-import io.github.platob.arrow4s.core.codec.ValueCodec
+import io.github.platob.arrow4s.core.codec.value.ValueCodec
 import org.apache.arrow.dataset.file.FileFormat
 import org.apache.arrow.dataset.scanner.{ScanOptions, Scanner}
 import org.apache.arrow.memory.RootAllocator

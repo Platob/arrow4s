@@ -1,21 +1,13 @@
 package io.github.platob.arrow4s.core.arrays.traits
 
-import io.github.platob.arrow4s.core.codec.ValueCodec
+import io.github.platob.arrow4s.core.codec.vector.VectorCodec
 import org.apache.arrow.vector.ValueVector
 import org.apache.arrow.vector.types.pojo.Field
 
 trait TArrowArray extends AutoCloseable {
-  def codec: ValueCodec[_]
+  def codec: VectorCodec[_]
 
   @inline def vector: ValueVector
-
-  @inline def isPrimitive: Boolean
-
-  @inline def isNested: Boolean
-
-  @inline def isOptional: Boolean
-
-  @inline def isLogical: Boolean
 
   @inline def field: Field = vector.getField
 
@@ -32,21 +24,13 @@ trait TArrowArray extends AutoCloseable {
     this
   }
 
-  def setValueCount(count: Int): this.type = {
-    vector.setValueCount(count)
+  @inline def isNull(index: Int): Boolean = vector.isNull(index)
+
+  @inline def setNull(index: Int): this.type = {
+    codec.unsafeSetNull(vector, index)
 
     this
   }
-
-  // Accessors
-  @inline def unsafeGet[T](index: Int): T
-
-  // Mutators
-  @inline def unsafeSet(index: Int, value: Any): Unit
-
-  @inline def isNull(index: Int): Boolean = vector.isNull(index)
-
-  @inline def setNull(index: Int): this.type
 
   // AutoCloseable
   def close(): Unit = vector.close()

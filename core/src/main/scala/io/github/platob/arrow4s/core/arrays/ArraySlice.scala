@@ -1,42 +1,41 @@
 package io.github.platob.arrow4s.core.arrays
 
-import io.github.platob.arrow4s.core.arrays.traits.TArraySlice
-import io.github.platob.arrow4s.core.codec.ValueCodec
 import org.apache.arrow.vector.ValueVector
 
-trait ArraySlice[T] extends ArrowArray[T] with TArraySlice {
-  override def asUnchecked(codec: ValueCodec[_]): ArraySlice[_] = {
-    inner.asUnchecked(codec).arrowSlice(start = startIndex, end = endIndex)
+trait ArraySlice[T] extends ArrowArray[T] {
+  val startIndex: Int
+
+  val endIndex: Int
+
+  override def length: Int = endIndex - startIndex
+
+  protected def innerStartIndex(index: Int): Int = {
+    if (index < 0 || index >= length) {
+      throw new IndexOutOfBoundsException(s"Index $index out of bounds for slice of length $length")
+    }
+    startIndex + index
   }
 
-  override def innerAs(codec: ValueCodec[_]): ArraySlice[_] = {
-    this.inner.innerAs(codec).arrowSlice(start = startIndex, end = endIndex)
+  protected def innerEndIndex(index: Int): Int = {
+    if (index < 0 || index > length) {
+      throw new IndexOutOfBoundsException(s"Index $index out of bounds for slice of length $length")
+    }
+    startIndex + index
   }
 }
 
 object ArraySlice {
-  class Typed[
-    Value, ArrowVector <: ValueVector, Arr <: ArrowArray.Typed[Value, ArrowVector, Arr]
-  ](
-    val inner: Arr,
+  class Typed[Value, ArrowVector <: ValueVector](
+    val inner: ArrowArray.Typed[Value, ArrowVector],
     val startIndex: Int,
     val endIndex: Int
-  ) extends ArrowArrayProxy.Typed[
-    ArrowVector,
-    Value, Arr,
-    Value, Typed[Value, ArrowVector, Arr]
-  ] with ArraySlice[Value] {
-    override def codec: ValueCodec[Value] = inner.codec
-
-    override lazy val children: Seq[ArraySlice[_]] = inner.children
-      .map(_.arrowSlice(start = startIndex, end = endIndex))
-
-    override def get(index: Int): Value = {
-      inner.get(innerStartIndex(index))
+  ) extends ArrowArray.Typed[Value, ArrowVector](inner.vector)(inner.codec) with ArraySlice[Value] {
+    override def getObject(index: Int): Value = {
+      inner.getObject(innerStartIndex(index))
     }
 
-    override def set(index: Int, value: Value): this.type = {
-      inner.set(innerStartIndex(index), value)
+    override def setObject(index: Int, value: Value): this.type = {
+      inner.setObject(innerStartIndex(index), value)
       this
     }
 
@@ -46,17 +45,5 @@ object ArraySlice {
 
       inner.toArray(start = s, end = e)
     }
-  }
-
-  def instance[Value, ArrowVector <: ValueVector, Arr <: ArrowArray.Typed[Value, ArrowVector, Arr]](
-    array: Arr,
-    start: Int,
-    end: Int
-  ): ArraySlice.Typed[Value, ArrowVector, Arr] = {
-    new ArraySlice.Typed[Value, ArrowVector, Arr](
-      inner = array,
-      startIndex = start,
-      endIndex = end
-    )
   }
 }

@@ -1,12 +1,12 @@
 package io.github.platob.arrow4s.core.values
 
-import io.github.platob.arrow4s.core.codec.ValueCodec
+import io.github.platob.arrow4s.core.codec.value.primitive.PrimitiveValueCodec
 import munit.FunSuite
 
 import scala.reflect.runtime.{universe => ru}
 
 final class Int32CodecSuite extends FunSuite {
-  private val i32: ValueCodec[Int] = implicitly[ValueCodec[Int]]
+  private val i32: PrimitiveValueCodec[Int] = implicitly[PrimitiveValueCodec[Int]]
 
   test("summon ValueCodec[Int] from companion") {
     assertEquals(i32.namespace, "scala.Int")

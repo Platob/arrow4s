@@ -31,6 +31,10 @@ object ArrowField {
   }
 
   def rename(field: Field, newName: String): Field = {
+    if (field.getName == newName) {
+      return field
+    }
+
     javaBuild(
       name = newName,
       at = field.getType,

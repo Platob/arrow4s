@@ -15,23 +15,6 @@ trait TArrowArray extends AutoCloseable {
 
   @inline def nullCount: Int = vector.getNullCount
 
-  // Memory management
-  def ensureIndex(index: Int): this.type = {
-    if (index >= vector.getValueCapacity) {
-      vector.reAlloc()
-    }
-
-    this
-  }
-
-  @inline def isNull(index: Int): Boolean = vector.isNull(index)
-
-  @inline def setNull(index: Int): this.type = {
-    codec.unsafeSetNull(vector, index)
-
-    this
-  }
-
   // AutoCloseable
   def close(): Unit = vector.close()
 }

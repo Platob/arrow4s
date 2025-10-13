@@ -111,21 +111,21 @@ class ArrowArraySuite extends FunSuite {
     val array = ArrowArray(values.map(Option(_)):_*)
 
     // Test set
-    array.setObject(2, None)
-    array.setObject(values.length, Some(100))
+    array(2, None)
+    array(values.length, Some(100))
 
     assertEquals(array.nullCount, 1)
-    assertEquals(array.getObject(values.length), Some(100))
+    assertEquals(array(values.length), Some(100))
     // Unchanged length
     assertEquals(array.length, values.length)
 
     // Test append
-//    array.append(None).append(Some(101))
+    array :+ None :+ Some(101)
 
     assertEquals(array.nullCount, 2)
     assertEquals(array.length, values.length + 2)
-    assertEquals(array.getObject(values.length), None)
-    assertEquals(array.getObject(values.length + 1), Some(101))
+    assertEquals(array(values.length), None)
+    assertEquals(array(values.length + 1), Some(101))
   }
 }
 

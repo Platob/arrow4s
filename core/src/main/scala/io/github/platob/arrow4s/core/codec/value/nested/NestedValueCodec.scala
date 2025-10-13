@@ -1,10 +1,7 @@
 package io.github.platob.arrow4s.core.codec.value.nested
 
-import io.github.platob.arrow4s.core.codec.convert.ValueConverter
 import io.github.platob.arrow4s.core.codec.value.ValueCodec
 
-import java.math.BigInteger
-import java.nio.charset.Charset
 import scala.reflect.ClassTag
 import scala.reflect.runtime.{universe => ru}
 
@@ -38,36 +35,4 @@ abstract class NestedValueCodec[T](
   }
 
   override def default: T = zero
-
-  override def toBytes(value: T): Array[Byte] = toValue(value)(ValueConverter.toBytes(this))
-  override def fromBytes(value: Array[Byte]): T =
-    throw new UnsupportedOperationException(s"Cannot convert bytes to $this")
-
-  override def toString(value: T, charset: Charset): String = toValue(value)(ValueConverter.toString(this))
-  override def fromString(value: String, charset: Charset): T =
-    throw new UnsupportedOperationException(s"Cannot convert string to $this")
-
-  override def toBoolean(value: T): Boolean = toValue(value)(ValueConverter.toBoolean(this))
-  override def fromBoolean(value: Boolean): T =
-    throw new UnsupportedOperationException(s"Cannot convert boolean to $this")
-
-  override def toInt(value: T): Int = toValue(value)(ValueConverter.toInt(this))
-  override def fromInt(value: Int): T =
-    throw new UnsupportedOperationException(s"Cannot convert int to $this")
-
-  override def toLong(value: T): Long = toValue(value)(ValueConverter.toLong(this))
-  override def fromLong(value: Long): T =
-    throw new UnsupportedOperationException(s"Cannot convert long to $this")
-
-  override def toDouble(value: T): Double = toValue(value)(ValueConverter.toDouble(this))
-  override def fromDouble(value: Double): T =
-    throw new UnsupportedOperationException(s"Cannot convert double to $this")
-
-  override def toBigInteger(value: T): BigInteger = toValue(value)(ValueConverter.toBigInteger(this))
-  override def fromBigInteger(value: BigInteger): T =
-    throw new UnsupportedOperationException(s"Cannot convert BigInteger to $this")
-
-  override def toBigDecimal(value: T): java.math.BigDecimal = toValue(value)(ValueConverter.toBigDecimal(this))
-  override def fromBigDecimal(value: java.math.BigDecimal): T =
-    throw new UnsupportedOperationException(s"Cannot convert BigDecimal to $this")
 }

@@ -20,13 +20,22 @@ trait ArrowArray[T] extends TArrowArray
   @inline def getObject(index: Int): T
 
   // Mutation
+  @inline def apply(index: Int, value: T): Unit = setObject(index, value)
+
   @inline def setObject(index: Int, value: T): this.type
 
-  @inline def setValues(index: Int, values: Iterable[T]): this.type = {
-    values.zipWithIndex.foreach { case (v, i) => setObject(index + i, v) }
+  @inline def setValues(index: Int, values: Iterable[T]): this.type
 
+  @inline def append(value: T): this.type
+
+  @inline def :+(value: T): this.type = append(value)
+
+  @inline def appendValues(values: Iterable[T]): this.type = {
+    values.foreach(append)
     this
   }
+
+  @inline def ++(values: Iterable[T]): this.type = appendValues(values)
 
   /**
    * Convert the entire array to a standard Scala array.
@@ -62,6 +71,16 @@ object ArrowArray {
 
     override def setObject(index: Int, value: Value): this.type = {
       codec.set(vector, index, value)
+      this
+    }
+
+    override def setValues(index: Int, values: Iterable[Value]): Typed.this.type = {
+      codec.setValues(vector, index, values)
+      this
+    }
+
+    override def append(value: Value): Typed.this.type = {
+      codec.append(vector, value)
       this
     }
 
@@ -104,90 +123,11 @@ object ArrowArray {
 
   def empty[T](implicit codec: ValueCodec[T]): ArrowArray[T] = make(Seq.empty[T])
 
-  def fill[T](n: Int)(elem: => T)(implicit codec: ValueCodec[T]): ArrowArray[T] = {
-    val values = Seq.fill(n)(elem)
-
-    make(values)
-  }
-
   def make[T](values: Seq[T])(implicit codec: ValueCodec[T]): ArrowArray[T] = {
-    val vector = VectorCodec.default[T].createVector(RootAllocatorExtension.INSTANCE)
-    vector.allocateNew()
-    vector.setInitialCapacity(values.size)
-    vector.setValueCount(values.size)
-
-    // Array
-    val array = from[T](vector)
-
-    // Fill
-    array.setValues(0, values)
-
-    array
-  }
-
-  def from[T](vector: ValueVector)(implicit codec: ValueCodec[T]): ArrowArray[T] = {
-    // Safer nested checks
-    val field = vector.getField
-    val dtype = field.getType
-
-    dtype.getTypeID match {
-      case ArrowTypeID.Binary =>
-        new Typed[T, VarBinaryVector](vector.asInstanceOf[VarBinaryVector])(VectorCodec.binary.as[T])
-      case ArrowTypeID.Utf8 =>
-        val c = VectorCodec.utf8.as[T]
-        new Typed[T, VarCharVector](vector.asInstanceOf[VarCharVector])(c)
-      case ArrowTypeID.Int =>
-        val arrowType = dtype.asInstanceOf[ArrowType.Int]
-
-        (arrowType.getBitWidth, arrowType.getIsSigned) match {
-          case (8, true) =>
-            new Typed[T, TinyIntVector](vector.asInstanceOf[TinyIntVector])(VectorCodec.byte.as[T])
-          case (8, false) =>
-            new Typed[T, UInt1Vector](vector.asInstanceOf[UInt1Vector])(VectorCodec.ubyte.as[T])
-          case (16, true) =>
-            new Typed[T, SmallIntVector](vector.asInstanceOf[SmallIntVector])(VectorCodec.short.as[T])
-          case (16, false) =>
-            new Typed[T, UInt2Vector](vector.asInstanceOf[UInt2Vector])(VectorCodec.char.as[T])
-          case (32, true) =>
-            val c = VectorCodec.int.as[T]
-            new Typed[T, IntVector](vector.asInstanceOf[IntVector])(c)
-          case (32, false) =>
-            new Typed[T, UInt4Vector](vector.asInstanceOf[UInt4Vector])(VectorCodec.uint.as[T])
-          case (64, true) =>
-            new Typed[T, BigIntVector](vector.asInstanceOf[BigIntVector])(VectorCodec.long.as[T])
-          case (64, false) =>
-            new Typed[T, UInt8Vector](vector.asInstanceOf[UInt8Vector])(VectorCodec.ulong.as[T])
-          case _ =>
-            throw new IllegalArgumentException(s"Unsupported integer type: $arrowType")
-        }
-      case ArrowTypeID.FloatingPoint =>
-        val arrowType = dtype.asInstanceOf[ArrowType.FloatingPoint]
-
-        arrowType.getPrecision match {
-          case FloatingPointPrecision.SINGLE =>
-            new Typed[T, Float4Vector](vector.asInstanceOf[Float4Vector])(VectorCodec.float.as[T])
-          case FloatingPointPrecision.DOUBLE =>
-            new Typed[T, Float8Vector](vector.asInstanceOf[Float8Vector])(VectorCodec.double.as[T])
-          case _ =>
-            throw new IllegalArgumentException(s"Unsupported floating point type: $arrowType")
-        }
-      case ArrowTypeID.Decimal =>
-        val arrowType = dtype.asInstanceOf[ArrowType.Decimal]
-
-        arrowType.getBitWidth match {
-          case 128 =>
-            new Typed[T, DecimalVector](vector.asInstanceOf[DecimalVector])(VectorCodec.bigDecimal.as[T])
-//          case 256 =>
-//            new Typed[T, Decimal256Vector](vector.asInstanceOf[Decimal256Vector])(VectorCodec.bigDecimal.as[T])
-          case _ =>
-            throw new IllegalArgumentException(s"Unsupported decimal type: $arrowType")
-        }
-      case ArrowTypeID.Bool =>
-        new Typed[T, BitVector](vector.asInstanceOf[BitVector])(VectorCodec.boolean.as[T])
-      case _ =>
-        throw new IllegalArgumentException(s"Unsupported or non-primitive data type: $dtype. " +
-          s"Please use ArrowArray.default for automatic derivation.")
-    }
+    VectorCodec.default[T].createArray(
+      allocator = RootAllocatorExtension.INSTANCE,
+      values = values
+    )
   }
 
   def default(vector: ValueVector): ArrowArray.Typed[_, _] = {

@@ -12,30 +12,24 @@ abstract class ProxyCodec[In, Out](
   val typeTag: ru.TypeTag[Out],
   val clsTag: ClassTag[Out],
 ) extends ValueCodec[Out] {
-  def encode(value: Out): In
-  def decode(value: In): Out
+  def decode(value: Out): In
+  def encode(value: In): Out
 
   override def namespace: String = s"${clsTag.runtimeClass.getSimpleName}[${inner.namespace}]"
-  override def one: Out = decode(inner.one)
-  override def zero: Out = decode(inner.zero)
-  override def default: Out = decode(inner.default)
+  override def one: Out = encode(inner.one)
+  override def zero: Out = encode(inner.zero)
+  override def default: Out = encode(inner.default)
   override def bitSize: Int = inner.bitSize
   override def isTuple: Boolean = inner.isTuple
   override def isPrimitive: Boolean = inner.isPrimitive
 
   override def children: Seq[ValueCodec[_]] = Seq(inner)
 
-  override def elementAt[E](value: Out, index: Int): E = inner.elementAt[E](encode(value), index)
+  override def elementAt[E](value: Out, index: Int): E = inner.elementAt[E](decode(value), index)
 
-  override def elements(value: Out): Array[Any] = inner.elements(encode(value))
+  override def elements(value: Out): Array[Any] = inner.elements(decode(value))
 
-  override def fromElements(values: Array[Any]): Out = decode(inner.fromElements(values))
+  override def fromElements(values: Array[Any]): Out = encode(inner.fromElements(values))
 
-  override def isNull(value: Out): Boolean = inner.isNull(encode(value))
-
-  override def toBytes(value: Out): Array[Byte] = inner.toBytes(encode(value))
-  override def fromBytes(value: Array[Byte]): Out = decode(inner.fromBytes(value))
-
-  override def toString(value: Out, charset: java.nio.charset.Charset): String = inner.toString(encode(value), charset)
-  override def fromString(value: String, charset: java.nio.charset.Charset): Out = decode(inner.fromString(value, charset))
+  override def isNull(value: Out): Boolean = inner.isNull(decode(value))
 }

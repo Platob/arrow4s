@@ -1,7 +1,9 @@
 package io.github.platob.arrow4s.core.codec.vector
 
+import io.github.platob.arrow4s.core.arrays.ArrowArray
 import io.github.platob.arrow4s.core.codec.convert.ValueConverter
-import io.github.platob.arrow4s.core.codec.value.ValueCodec
+import io.github.platob.arrow4s.core.codec.value.{OptionalValueCodec, ValueCodec}
+import io.github.platob.arrow4s.core.codec.value.primitive.PrimitiveValueCodec
 import io.github.platob.arrow4s.core.codec.vector.VectorCodec.Typed
 import io.github.platob.arrow4s.core.codec.vector.primitive.{ByteBasedVectorCodec, FloatingVectorCodec, IntegralVectorCodec}
 import io.github.platob.arrow4s.core.types.ArrowField
@@ -14,20 +16,22 @@ import org.apache.arrow.vector.types.pojo.{ArrowType, Field}
 trait VectorCodec[T] extends Serializable {
   def codec: ValueCodec[T]
 
-  @inline def unsafeGet(vector: ValueVector, index: Int): T
-
   // Mutators
-  @inline def unsafeSet(vector: ValueVector, index: Int, value: T): Unit
-
-  @inline def unsafeSetNull(vector: ValueVector, index: Int): Unit
-
   @inline def isNull(vector: ValueVector, index: Int): Boolean = {
     vector.isNull(index)
   }
 
-  @inline def as[C](implicit converter: ValueConverter[T, C]): Typed[C, _ <: ValueVector]
+  @inline def as[C](implicit codec: ValueConverter[T, C]): Typed[C, _ <: ValueVector]
 
   def asValue[C](codec: ValueCodec[C]): VectorCodec.Typed[C, _ <: ValueVector]
+
+  def createVector(allocator: BufferAllocator): ValueVector
+
+  def createVector(name: String, allocator: BufferAllocator): ValueVector
+
+  def createVector(field: Field, allocator: BufferAllocator): ValueVector
+
+  def createArray(allocator: BufferAllocator, values: Iterable[T]): ArrowArray[T]
 }
 
 object VectorCodec {
@@ -36,10 +40,6 @@ object VectorCodec {
 
     def toOptional: OptionalVectorCodec.Typed[T, V] = optional[T, V](this, codec.toOptionalCodec)
 
-    override def unsafeGet(vector: ValueVector, index: Int): T = {
-      get(vector.asInstanceOf[V], index)
-    }
-
     @inline def get(vector: V, index: Int): T
 
     @inline def getOption(vector: V, index: Int): Option[T] = {
@@ -47,10 +47,6 @@ object VectorCodec {
     }
 
     // Mutators
-    override def unsafeSet(vector: ValueVector, index: Int, value: T): Unit = {
-      set(vector.asInstanceOf[V], index, value)
-    }
-
     @inline def set(vector: V, index: Int, value: T): Unit
 
     @inline def setOption(vector: V, index: Int, value: Option[T]): Unit = {
@@ -60,10 +56,16 @@ object VectorCodec {
       }
     }
 
+    @inline def setValues(vector: V, index: Int, values: Iterable[T]): Unit = {
+      values.zipWithIndex.foreach { case (v, i) => set(vector, index + i, v) }
+    }
+
     @inline def setNull(vector: V, index: Int): Unit
 
-    override def unsafeSetNull(vector: ValueVector, index: Int): Unit = {
-      setNull(vector.asInstanceOf[V], index)
+    @inline def append(vector: V, value: T): Unit = {
+      val index = vector.getValueCount
+      vector.setValueCount(index + 1)
+      set(vector, index, value)
     }
 
     override def as[C](implicit converter: ValueConverter[T, C]): Typed[C, V] = {
@@ -71,7 +73,7 @@ object VectorCodec {
         return this.asInstanceOf[Typed[C, V]]
       }
 
-      new ConvertVectorCodec.Typed[T, C, V]()(this, converter)
+      ConvertVectorCodec.fromConverter[T, C, V](converter, this, converter.target)
     }
 
     override def asValue[C](codec: ValueCodec[C]): Typed[C, V] = {
@@ -84,21 +86,35 @@ object VectorCodec {
       this.as[C](converter)
     }
 
-    def createVector(allocator: BufferAllocator): V = {
+    override def createVector(allocator: BufferAllocator): V = {
       createVector(codec.arrowField, allocator)
     }
 
-    def createVector(name: String, allocator: BufferAllocator): V = {
+    override def createVector(name: String, allocator: BufferAllocator): V = {
       val field = ArrowField.rename(codec.arrowField, name)
 
 
       createVector(field, allocator)
     }
 
-    def createVector(field: Field, allocator: BufferAllocator): V = {
+    override def createVector(field: Field, allocator: BufferAllocator): V = {
       val built = field.createVector(allocator).asInstanceOf[V]
 
       built
+    }
+
+    override def createArray(allocator: BufferAllocator, values: Iterable[T]): ArrowArray.Typed[T, V] = {
+      val vector = createVector(allocator)
+      vector.setInitialCapacity(values.size)
+      vector.allocateNew()
+
+      // Set values
+      setValues(vector, 0, values)
+
+      // Set value count
+      vector.setValueCount(values.size)
+
+      new ArrowArray.Typed[T, V](vector)(this)
     }
   }
 
@@ -124,58 +140,86 @@ object VectorCodec {
   ): OptionalVectorCodec.Typed[T, V] = new OptionalVectorCodec.Typed[T, V](inner)
 
   def default[T](implicit codec: ValueCodec[T]): VectorCodec.Typed[T, _ <: ValueVector] = {
+    codec match {
+      case opt: OptionalValueCodec[t] =>
+        val built = default[t](opt.inner)
+
+        return built.toOptional.asInstanceOf[VectorCodec.Typed[T, _ <: ValueVector]]
+      case _ =>
+        // Skip
+    }
+
     codec.arrowTypeId match {
       case ArrowTypeID.Binary =>
-        binary.as[T]
+        codec match {
+          case prim: PrimitiveValueCodec[T] =>
+            val converter = ValueConverter.fromBytes[T](prim)
+
+            binary.as[T](converter)
+          case _ =>
+            throw new IllegalArgumentException(s"No default VectorCodec for codec with type: $codec")
+        }
       case ArrowTypeID.Utf8 =>
-        utf8.as[T]
+        codec match {
+          case prim: PrimitiveValueCodec[T] =>
+            val converter = ValueConverter.fromString[T](prim)
+
+            utf8.as[T](converter)
+          case _ =>
+            throw new IllegalArgumentException(s"No default VectorCodec for codec with type: $codec")
+        }
       case ArrowTypeID.Int =>
         val intType = codec.arrowField.getType.asInstanceOf[org.apache.arrow.vector.types.pojo.ArrowType.Int]
 
-        (intType.getBitWidth, intType.getIsSigned) match {
-          case (8, true) =>
-            byte.as[T]
-          case (8, false) =>
-            ubyte.as[T]
-          case (16, true) =>
-            short.as[T]
-          case (16, false) =>
-            char.as[T]
-          case (32, true) =>
-            int.as[T]
-          case (32, false) =>
-            uint.as[T]
-          case (64, true) =>
-            long.as[T]
-          case (64, false) =>
-            ulong.as[T]
+        codec match {
+          case prim: PrimitiveValueCodec[T] =>
+            intType.getBitWidth match {
+              case 8 if intType.getIsSigned  => byte.as[T](ValueConverter.fromByte(prim))
+              case 8 if !intType.getIsSigned => ubyte.as[T](ValueConverter.fromUByte(prim))
+              case 16 if intType.getIsSigned  => short.as[T](ValueConverter.fromShort(prim))
+              case 16 if !intType.getIsSigned => char.as[T](ValueConverter.fromChar(prim))
+              case 32 if intType.getIsSigned  => int.as[T](ValueConverter.fromInt(prim))
+              case 32 if !intType.getIsSigned => uint.as[T](ValueConverter.fromUInt(prim))
+              case 64 if intType.getIsSigned  => long.as[T](ValueConverter.fromLong(prim))
+              case 64 if !intType.getIsSigned => ulong.as[T](ValueConverter.fromULong(prim))
+              case _ =>
+                throw new IllegalArgumentException(s"Unsupported integer type: $intType")
+            }
           case _ =>
-            throw new IllegalArgumentException(s"Unsupported integer type: $intType")
+            throw new IllegalArgumentException(s"No default VectorCodec for codec with type: $codec")
         }
       case ArrowTypeID.FloatingPoint =>
         val floatType = codec.arrowField.getType.asInstanceOf[ArrowType.FloatingPoint]
 
-        floatType.getPrecision match {
-          case FloatingPointPrecision.SINGLE =>
-            float.as[T]
-          case FloatingPointPrecision.DOUBLE =>
-            double.as[T]
+        codec match {
+          case prim: PrimitiveValueCodec[T] =>
+            floatType.getPrecision match {
+              case FloatingPointPrecision.SINGLE => float.as[T](ValueConverter.fromFloat(prim))
+              case FloatingPointPrecision.DOUBLE => double.as[T](ValueConverter.fromDouble(prim))
+              case _ =>
+                throw new IllegalArgumentException(s"Unsupported floating point type: $floatType")
+            }
           case _ =>
-            throw new IllegalArgumentException(s"Unsupported floating point type: $floatType")
+            throw new IllegalArgumentException(s"No default VectorCodec for codec with type: $codec")
         }
       case ArrowTypeID.Decimal =>
         val decimalType = codec.arrowField.getType.asInstanceOf[ArrowType.Decimal]
 
-        decimalType.getBitWidth match {
-          case 128 =>
-            bigDecimal.as[T]
-//          case 256 =>
-//            new Typed[T, Decimal256Vector](bigDecimal.codec)
+        codec match {
+          case prim: PrimitiveValueCodec[T] =>
+            decimalType.getBitWidth match {
+              case 128 => bigDecimal.as[T](ValueConverter.fromBigDecimal(prim))
+            }
           case _ =>
-            throw new IllegalArgumentException(s"Unsupported decimal type: $decimalType")
+            throw new IllegalArgumentException(s"No default VectorCodec for codec with type: $codec")
         }
       case ArrowTypeID.Bool =>
-        boolean.as[T]
+        codec match {
+          case prim: PrimitiveValueCodec[T] =>
+            boolean.as[T](ValueConverter.fromBoolean(prim))
+          case _ =>
+            throw new IllegalArgumentException(s"No default VectorCodec for codec with type: $codec")
+        }
       case _ =>
         throw new IllegalArgumentException(s"No default VectorCodec for codec with type: ${codec.arrowTypeId}")
     }

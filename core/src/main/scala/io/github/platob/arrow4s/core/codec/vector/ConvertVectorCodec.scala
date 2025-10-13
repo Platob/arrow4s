@@ -16,6 +16,23 @@ object ConvertVectorCodec {
     override def setNull(vector: V, index: Int): Unit = {
       inner.setNull(vector, index)
     }
+
+    override def as[C](implicit converter: ValueConverter[Out, C]): VectorCodec.Typed[C, V] = {
+      if (converter.target == this.codec)
+        return this.asInstanceOf[VectorCodec.Typed[C, V]]
+
+      if (converter.target == this.inner.codec)
+        return inner.asInstanceOf[VectorCodec.Typed[C, V]]
+
+      super.as[C]
+    }
+
+    override def asValue[C](codec: ValueCodec[C]): VectorCodec.Typed[C, V] = {
+      if (this.codec == codec)
+        return this.asInstanceOf[VectorCodec.Typed[C, V]]
+
+      inner.asValue(codec)
+    }
   }
 
   class ToOption[In, Out, V <: ValueVector](
